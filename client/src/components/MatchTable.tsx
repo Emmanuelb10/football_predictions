@@ -41,10 +41,30 @@ export default function MatchTable({ matches, loading, date }: MatchTableProps) 
     return m.tip === actual ? 'var(--accent-green)' : 'var(--accent-red)';
   };
 
-  const formatOdds = (m: any) => {
-    if (!m.odds || m.odds.length === 0) return '-';
+  const isValueOdds = (val: number) => val >= 1.5 && val <= 2.0;
+
+  const OddsValue = ({ val }: { val: number }) => (
+    <span
+      style={{
+        color: isValueOdds(val) ? '#22c55e' : 'var(--text-secondary)',
+        fontWeight: isValueOdds(val) ? 700 : 400,
+        background: isValueOdds(val) ? 'rgba(34,197,94,0.12)' : 'transparent',
+        padding: isValueOdds(val) ? '1px 4px' : '0',
+        borderRadius: '4px',
+      }}
+    >
+      {val.toFixed(2)}
+    </span>
+  );
+
+  const renderOdds = (m: any) => {
+    if (!m.odds || m.odds.length === 0) return <span>-</span>;
     const o = m.odds[0];
-    return `${o.home.toFixed(2)} / ${o.draw.toFixed(2)} / ${o.away.toFixed(2)}`;
+    return (
+      <span className="font-mono text-xs">
+        <OddsValue val={o.home} /> / <OddsValue val={o.draw} /> / <OddsValue val={o.away} />
+      </span>
+    );
   };
 
   return (
@@ -126,8 +146,8 @@ export default function MatchTable({ matches, loading, date }: MatchTableProps) 
                           </span>
                         ) : '-'}
                       </td>
-                      <td className="py-2.5 px-2 text-center font-mono text-xs" style={{ color: 'var(--text-secondary)' }}>
-                        {formatOdds(m)}
+                      <td className="py-2.5 px-2 text-center">
+                        {renderOdds(m)}
                       </td>
                       <td className="py-2.5 px-2 text-center">
                         {m.expected_value ? (

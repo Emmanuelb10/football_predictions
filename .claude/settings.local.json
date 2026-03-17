@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//mnt/c/Users/Kirui/Documents/**)",
+      "Bash(python3 -c \":*)",
+      "Bash(python -c \":*)",
+      "WebFetch(domain:www.api-football.com)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:v3.football.api-sports.io)",
+      "Bash(wsl bash:*)",
+      "Bash(wsl:*)",
+      "Bash(ipconfig)",
+      "Bash(netsh interface:*)",
+      "Bash(netsh.exe interface:*)",
+      "Bash(powershell.exe -Command \"netsh interface portproxy add v4tov4 listenport=3001 listenaddress=0.0.0.0 connectport=3001 connectaddress=172.29.11.241\" 2>&1)",
+      "Bash(curl -s http://localhost:3001/api/health)",
+      "Bash(curl -s -o /dev/null -w \"frontend: %{http_code}\" http://localhost:3000/)",
+      "Bash(powershell.exe -Command \"Invoke-WebRequest -Uri 'http://192.168.1.108:3001/api/health' -UseBasicParsing -TimeoutSec 5 | Select-Object -ExpandProperty Content\" 2>&1)",
+      "Bash(powershell.exe -Command \"\\(Invoke-WebRequest -Uri 'http://192.168.1.108:3000/' -UseBasicParsing -TimeoutSec 5\\).StatusCode\" 2>&1)",
+      "Bash(powershell.exe -Command \"try { \\(Invoke-WebRequest -Uri 'http://172.29.11.241:3000/' -UseBasicParsing -TimeoutSec 5\\).StatusCode } catch { $_.Exception.Message }\" 2>&1)",
+      "Bash(powershell.exe -Command \"\\(Invoke-WebRequest -Uri 'http://192.168.1.108:3001/api/health' -UseBasicParsing -TimeoutSec 5\\).Content\")",
+      "Bash(powershell.exe -Command \"Get-NetFirewallRule -DisplayName 'Football*' 2>null | Select-Object DisplayName,Enabled,Direction,Action | Format-Table\" 2>&1)",
+      "WebFetch(domain:www.prosoccer.gr)"
+    ]
+  }
+}

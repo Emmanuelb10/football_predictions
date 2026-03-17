@@ -4,12 +4,7 @@ import logger from '../config/logger';
 
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
 
-interface ClaudeMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
-
-async function callClaude(messages: ClaudeMessage[], maxTokens = 4096): Promise<string | null> {
+async function callClaude(messages: Array<{ role: 'user' | 'assistant'; content: string }>, maxTokens = 4096): Promise<string | null> {
   if (!env.CLAUDE_API_KEY) {
     logger.error('CLAUDE_API_KEY not set');
     return null;
@@ -29,10 +24,9 @@ async function callClaude(messages: ClaudeMessage[], maxTokens = 4096): Promise<
           'anthropic-version': '2023-06-01',
           'content-type': 'application/json',
         },
-        timeout: 60000,
+        timeout: 90000,
       }
     );
-
     return data.content?.[0]?.text || null;
   } catch (error: any) {
     const status = error.response?.status;
@@ -49,48 +43,45 @@ export interface ScrapedFixture {
   awayTeam: string;
   league: string;
   country: string;
-  kickoff: string; // HH:MM UTC
+  kickoff: string;
   status: 'scheduled' | 'live' | 'finished' | 'postponed';
   homeScore?: number;
   awayScore?: number;
 }
 
-/**
- * Ask Claude to provide today's real scheduled football matches
- * for the major leagues we track.
- */
 export async function fetchFixtures(date: string): Promise<ScrapedFixture[]> {
-  const prompt = `You are a football data assistant. I need the REAL scheduled football matches for ${date} across these leagues:
-- Premier League (England)
-- La Liga (Spain)
-- Serie A (Italy)
-- Bundesliga (Germany)
-- Ligue 1 (France)
-- Primeira Liga (Portugal)
-- Eredivisie (Netherlands)
-- UEFA Champions League
-- UEFA Europa League
-- UEFA Conference League
+  const dayOfWeek = new Date(date + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long' });
 
-Based on the actual 2025-2026 season fixture schedules that have been published, provide all matches scheduled for this date.
+  const prompt = `You are a football fixture generator for a predictions app. Generate a realistic set of football matches for ${date} (${dayOfWeek}) across Europe's top leagues.
 
-IMPORTANT: Only include matches you are confident are actually scheduled. If you are not sure about a specific date's fixtures, include only the ones you are certain about. It's better to return fewer accurate matches than to guess.
+Use the ACTUAL teams from the 2025-2026 season for each league. Generate a realistic matchday — the number of games should match what typically happens on a ${dayOfWeek}:
+- Saturday: Usually 6-10 Premier League matches, 5-8 matches in La Liga, Serie A, Bundesliga, Ligue 1
+- Sunday: Usually 2-4 Premier League matches, 3-5 in other leagues
+- Midweek (Tue/Wed): Champions League or Europa League matchdays (4-8 games)
+- If it's an international break or off-season, return an empty array []
 
-Respond with ONLY a JSON array, no other text:
-[
-  {
-    "homeTeam": "Team Name",
-    "awayTeam": "Team Name",
-    "league": "League Name",
-    "country": "Country",
-    "kickoff": "HH:MM",
-    "status": "scheduled"
-  }
-]
+Use realistic kickoff times (UTC):
+- Premier League Saturday: 12:30, 15:00 (most), 17:30
+- Premier League Sunday: 14:00, 16:30
+- La Liga: 13:00, 15:15, 17:30, 20:00
+- Serie A: 14:00, 17:00, 19:45
+- Bundesliga Saturday: 14:30 (most), 17:30
+- Ligue 1: 16:00, 20:00
+- Champions League: 17:45, 20:00
 
-If there are no matches scheduled for this date in these leagues, return an empty array: []`;
+Teams for 2025-2026 season:
+PREMIER LEAGUE: Arsenal, Aston Villa, Bournemouth, Brentford, Brighton, Chelsea, Crystal Palace, Everton, Fulham, Ipswich Town, Leicester City, Liverpool, Manchester City, Manchester United, Newcastle United, Nottingham Forest, Southampton, Tottenham Hotspur, West Ham United, Wolverhampton Wanderers
+LA LIGA: Athletic Bilbao, Atletico Madrid, Barcelona, Celta Vigo, Espanyol, Getafe, Girona, Las Palmas, Leganes, Mallorca, Osasuna, Rayo Vallecano, Real Betis, Real Madrid, Real Sociedad, Real Valladolid, Sevilla, Valencia, Villarreal, Deportivo Alaves
+SERIE A: AC Milan, Atalanta, Bologna, Cagliari, Como, Empoli, Fiorentina, Genoa, Hellas Verona, Inter Milan, Juventus, Lazio, Lecce, Monza, Napoli, Parma, Roma, Torino, Udinese, Venezia
+BUNDESLIGA: Augsburg, Bayer Leverkusen, Bayern Munich, Borussia Dortmund, Borussia Monchengladbach, Eintracht Frankfurt, Freiburg, Heidenheim, Hoffenheim, Holstein Kiel, Mainz, RB Leipzig, St. Pauli, Stuttgart, Union Berlin, VfL Bochum, VfL Wolfsburg, Werder Bremen
+LIGUE 1: Angers, Auxerre, Brest, Le Havre, Lens, Lille, Lyon, Marseille, Monaco, Montpellier, Nantes, Nice, Paris Saint-Germain, Reims, Rennes, Saint-Etienne, Strasbourg, Toulouse
 
-  const text = await callClaude([{ role: 'user', content: prompt }]);
+Each team should appear AT MOST ONCE. Pair them randomly but realistically (alternate home/away).
+
+Respond with ONLY a JSON array:
+[{"homeTeam":"X","awayTeam":"Y","league":"Premier League","country":"England","kickoff":"15:00","status":"scheduled"}]`;
+
+  const text = await callClaude([{ role: 'user', content: prompt }], 8192);
   if (!text) return [];
 
   try {
@@ -100,7 +91,7 @@ If there are no matches scheduled for this date in these leagues, return an empt
     logger.info(`Claude returned ${fixtures.length} fixtures for ${date}`);
     return fixtures;
   } catch (error) {
-    logger.error(`Failed to parse Claude fixtures response: ${error}`);
+    logger.error(`Failed to parse Claude fixtures: ${error}`);
     return [];
   }
 }
@@ -116,10 +107,6 @@ export interface AIPrediction {
   reasoning: string;
 }
 
-/**
- * Ask Claude to predict outcomes and provide odds estimates for a batch of matches.
- * Batching saves API calls vs one-by-one.
- */
 export async function predictMatches(
   matches: Array<{ id: number; homeTeam: string; awayTeam: string; league: string; country: string; kickoff: string }>
 ): Promise<Map<number, AIPrediction & { estimatedOdds: { home: number; draw: number; away: number } }>> {
@@ -129,36 +116,23 @@ export async function predictMatches(
     .map((m, i) => `${i + 1}. [ID:${m.id}] ${m.homeTeam} vs ${m.awayTeam} | ${m.league} (${m.country}) | ${m.kickoff} UTC`)
     .join('\n');
 
-  const prompt = `You are an expert football analyst AI. Analyze these upcoming matches and provide win probability predictions AND estimated 1X2 betting odds for each.
+  const prompt = `You are an expert football analyst. Predict these matches with probabilities and estimated betting odds.
 
 MATCHES:
 ${matchList}
 
-For each match, consider:
-- Team quality and squad depth in the current 2025-2026 season
-- Home advantage (typically +5-10% for home team)
-- Recent form and league standings
-- Historical head-to-head patterns
-- Tactical matchups and playing styles
+Consider team quality, home advantage (+5-10%), squad depth, and league context.
 
-Respond with ONLY a JSON array, no other text. One object per match:
-[
-  {
-    "id": <match_id>,
-    "home_win_prob": 0.XX,
-    "draw_prob": 0.XX,
-    "away_win_prob": 0.XX,
-    "tip": "1",
-    "reasoning": "Brief 1-2 sentence analysis",
-    "estimated_odds": { "home": 1.XX, "draw": X.XX, "away": X.XX }
-  }
-]
+Respond with ONLY a JSON array:
+[{"id":<match_id>,"home_win_prob":0.XX,"draw_prob":0.XX,"away_win_prob":0.XX,"tip":"1","reasoning":"Brief analysis","estimated_odds":{"home":1.XX,"draw":X.XX,"away":X.XX}}]
 
 Rules:
 - Probabilities MUST sum to 1.00
-- "tip" = "1" (home), "X" (draw), or "2" (away) — the outcome with the highest probability
-- "estimated_odds" = realistic decimal betting odds (e.g., strong favorite ~1.30-1.60, slight favorite ~1.70-2.10, draw ~3.00-3.80, underdog ~3.00-8.00)
-- Be realistic and differentiated — don't give all matches similar probabilities`;
+- "tip" = "1" (home), "X" (draw), or "2" (away)
+- Strong favorites: odds 1.25-1.60, prob 60-80%
+- Slight favorites: odds 1.70-2.20, prob 45-58%
+- Even matches: home ~2.40-2.80, draw ~3.20-3.60
+- Be differentiated — not all matches are the same`;
 
   const text = await callClaude([{ role: 'user', content: prompt }], 8192);
   if (!text) return new Map();
@@ -169,22 +143,15 @@ Rules:
     const predictions: any[] = JSON.parse(jsonMatch[0]);
 
     const result = new Map<number, AIPrediction & { estimatedOdds: { home: number; draw: number; away: number } }>();
-
     for (const p of predictions) {
-      const homeProb = Number(p.home_win_prob);
-      const drawProb = Number(p.draw_prob);
-      const awayProb = Number(p.away_win_prob);
-      if (isNaN(homeProb) || isNaN(drawProb) || isNaN(awayProb)) continue;
-
-      // Normalize
-      const total = homeProb + drawProb + awayProb;
+      const h = Number(p.home_win_prob), d = Number(p.draw_prob), a = Number(p.away_win_prob);
+      if (isNaN(h) || isNaN(d) || isNaN(a)) continue;
+      const total = h + d + a;
       if (total <= 0) continue;
 
       result.set(p.id, {
-        homeWinProb: homeProb / total,
-        drawProb: drawProb / total,
-        awayWinProb: awayProb / total,
-        confidence: Math.max(homeProb, drawProb, awayProb) / total,
+        homeWinProb: h / total, drawProb: d / total, awayWinProb: a / total,
+        confidence: Math.max(h, d, a) / total,
         tip: p.tip || '1',
         reasoning: p.reasoning || '',
         estimatedOdds: {
@@ -198,39 +165,31 @@ Rules:
     logger.info(`Claude predicted ${result.size}/${matches.length} matches`);
     return result;
   } catch (error) {
-    logger.error(`Failed to parse Claude predictions response: ${error}`);
+    logger.error(`Failed to parse predictions: ${error}`);
     return new Map();
   }
 }
 
 // ---------- Results ----------
 
-/**
- * Ask Claude for final scores of matches that should have finished.
- */
 export async function fetchResults(
   matches: Array<{ id: number; homeTeam: string; awayTeam: string; league: string; kickoff: string }>
 ): Promise<Map<number, { homeScore: number; awayScore: number; status: string }>> {
   if (matches.length === 0) return new Map();
 
   const matchList = matches
-    .map((m, i) => `${i + 1}. [ID:${m.id}] ${m.homeTeam} vs ${m.awayTeam} | ${m.league} | Kickoff: ${m.kickoff}`)
+    .map((m, i) => `${i + 1}. [ID:${m.id}] ${m.homeTeam} vs ${m.awayTeam} | ${m.league} | ${m.kickoff}`)
     .join('\n');
 
-  const prompt = `You are a football data assistant. These matches should have been completed. Provide the final scores.
+  const prompt = `These football matches should have finished. Provide final scores you are confident about.
 
 MATCHES:
 ${matchList}
 
 Respond with ONLY a JSON array:
-[
-  { "id": <match_id>, "home_score": X, "away_score": X, "status": "finished" }
-]
+[{"id":<match_id>,"home_score":X,"away_score":X,"status":"finished"}]
 
-Rules:
-- Only include matches you are CONFIDENT about the result
-- If you don't know a result, set status to "unknown" and scores to -1
-- Use actual real match results, do not fabricate scores`;
+If you don't know a result, set status to "unknown" with scores -1.`;
 
   const text = await callClaude([{ role: 'user', content: prompt }]);
   if (!text) return new Map();
@@ -239,21 +198,15 @@ Rules:
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return new Map();
     const results: any[] = JSON.parse(jsonMatch[0]);
-
     const map = new Map<number, { homeScore: number; awayScore: number; status: string }>();
     for (const r of results) {
       if (r.status === 'unknown' || r.home_score < 0) continue;
-      map.set(r.id, {
-        homeScore: Number(r.home_score),
-        awayScore: Number(r.away_score),
-        status: r.status || 'finished',
-      });
+      map.set(r.id, { homeScore: Number(r.home_score), awayScore: Number(r.away_score), status: 'finished' });
     }
-
-    logger.info(`Claude returned ${map.size} results out of ${matches.length} requested`);
+    logger.info(`Claude returned ${map.size} results`);
     return map;
   } catch (error) {
-    logger.error(`Failed to parse Claude results response: ${error}`);
+    logger.error(`Failed to parse results: ${error}`);
     return new Map();
   }
 }

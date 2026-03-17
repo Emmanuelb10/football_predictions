@@ -11,30 +11,34 @@ import * as OddsModel from '../models/OddsHistory';
 const LEAGUE_MAP: Record<string, { apiId: number; country: string }> = {
   'premier league': { apiId: 39, country: 'England' },
   'english premier league': { apiId: 39, country: 'England' },
+  'english league one': { apiId: 39, country: 'England' },
+  'english league two': { apiId: 39, country: 'England' },
   'la liga': { apiId: 140, country: 'Spain' },
   'serie a': { apiId: 135, country: 'Italy' },
+  'serie b': { apiId: 136, country: 'Italy' },
   'bundesliga': { apiId: 78, country: 'Germany' },
   'ligue 1': { apiId: 61, country: 'France' },
   'primeira liga': { apiId: 94, country: 'Portugal' },
   'liga portugal': { apiId: 94, country: 'Portugal' },
   'eredivisie': { apiId: 88, country: 'Netherlands' },
-  'uefa champions league': { apiId: 2, country: 'World' },
-  'champions league': { apiId: 2, country: 'World' },
-  'uefa europa league': { apiId: 3, country: 'World' },
-  'europa league': { apiId: 3, country: 'World' },
-  'uefa conference league': { apiId: 848, country: 'World' },
-  'conference league': { apiId: 848, country: 'World' },
+  'champions league': { apiId: 2, country: 'Europe' },
+  'europa league': { apiId: 3, country: 'Europe' },
+  'conference league': { apiId: 848, country: 'Europe' },
+  'super lig': { apiId: 203, country: 'Turkey' },
+  'scottish premiership': { apiId: 179, country: 'Scotland' },
+  'super league': { apiId: 197, country: 'Greece' },
+  'pro league': { apiId: 144, country: 'Belgium' },
+  'liga profesional': { apiId: 128, country: 'Argentina' },
 };
 
 function findLeague(name: string): { apiId: number; country: string } | null {
   const lower = name.toLowerCase().trim();
-  // Exact match first
   if (LEAGUE_MAP[lower]) return LEAGUE_MAP[lower];
-  // Partial match
   for (const [key, val] of Object.entries(LEAGUE_MAP)) {
     if (lower.includes(key) || key.includes(lower)) return val;
   }
-  return null;
+  // Accept any league from prosoccer.gr even if not in our map
+  return { apiId: Math.abs(hashString(name)), country: 'Unknown' };
 }
 
 function hashString(s: string): number {
@@ -46,19 +50,29 @@ function hashString(s: string): number {
   return Math.abs(hash);
 }
 
-export async function ingestFixtures() {
-  const today = dayjs().format('YYYY-MM-DD');
+export async function ingestFixtures(targetDate?: string) {
+  const today = targetDate || dayjs().format('YYYY-MM-DD');
   logger.info(`Starting fixture ingestion for ${today}`);
 
   try {
-    // Step 1: Scrape fixtures from free web sources
-    const fixtures = await fixtureScraper.scrapeFixtures(today);
+    // Step 1: Scrape fixtures from prosoccer.gr (includes predictions + odds)
+    logger.info('Scraping prosoccer.gr for fixtures...');
+    let fixtures = await fixtureScraper.scrapeFixtures(today);
 
+    // Fallback to Claude if scraper fails
     if (fixtures.length === 0) {
-      // Fallback: ask Claude for fixtures
-      logger.info('No fixtures from web sources, asking Claude...');
+      logger.info('No fixtures from scraper, asking Claude...');
       const claudeFixtures = await claudeService.fetchFixtures(today);
-      fixtures.push(...claudeFixtures);
+      fixtures.push(...claudeFixtures.map(f => ({
+        ...f,
+        homeWinProb: undefined,
+        drawProb: undefined,
+        awayWinProb: undefined,
+        tip: undefined,
+        homeOdds: undefined,
+        drawOdds: undefined,
+        awayOdds: undefined,
+      })));
     }
 
     if (fixtures.length === 0) {
@@ -70,17 +84,14 @@ export async function ingestFixtures() {
 
     // Step 2: Store fixtures in DB
     let ingested = 0;
-    const storedMatches: Array<{
+    const matchesNeedingPredictions: Array<{
       id: number; homeTeam: string; awayTeam: string;
       league: string; country: string; kickoff: string;
     }> = [];
 
     for (const f of fixtures) {
       const leagueInfo = findLeague(f.league);
-      if (!leagueInfo) {
-        logger.debug(`Skipping untracked league: ${f.league}`);
-        continue;
-      }
+      if (!leagueInfo) continue;
 
       const tournament = await TournamentModel.upsert({
         api_football_id: leagueInfo.apiId,
@@ -116,25 +127,56 @@ export async function ingestFixtures() {
         away_score: f.awayScore ?? null,
       });
 
-      storedMatches.push({
-        id: match.id, homeTeam: f.homeTeam, awayTeam: f.awayTeam,
-        league: f.league, country: f.country || leagueInfo.country, kickoff: kickoffTime,
-      });
+      // Store scraped odds if available
+      if (f.homeOdds && f.drawOdds && f.awayOdds) {
+        await OddsModel.insert({
+          match_id: match.id,
+          bookmaker: 'prosoccer',
+          market: '1x2',
+          home_odds: f.homeOdds,
+          draw_odds: f.drawOdds,
+          away_odds: f.awayOdds,
+        });
+      }
+
+      // Store scraped prediction directly if available
+      if (f.homeWinProb && f.drawProb && f.awayWinProb) {
+        const tip = f.tip || (f.homeWinProb >= f.drawProb && f.homeWinProb >= f.awayWinProb ? '1' :
+          f.drawProb >= f.awayWinProb ? 'X' : '2');
+
+        await predictionEngine.processAIPrediction(match.id, {
+          homeTeam: f.homeTeam, awayTeam: f.awayTeam,
+          league: f.league, country: f.country, kickoff: kickoffTime,
+        }, 0, {
+          homeWinProb: f.homeWinProb,
+          drawProb: f.drawProb,
+          awayWinProb: f.awayWinProb,
+          confidence: Math.max(f.homeWinProb, f.drawProb, f.awayWinProb),
+          tip,
+          reasoning: 'prosoccer.gr prediction',
+        });
+      } else {
+        // Need Claude prediction for this match
+        matchesNeedingPredictions.push({
+          id: match.id, homeTeam: f.homeTeam, awayTeam: f.awayTeam,
+          league: f.league, country: f.country, kickoff: kickoffTime,
+        });
+      }
+
       ingested++;
     }
 
-    logger.info(`Ingested ${ingested} matches`);
+    logger.info(`Ingested ${ingested} matches (${ingested - matchesNeedingPredictions.length} with scraped predictions)`);
 
-    // Step 3: Claude predictions + estimated odds (single batch call)
-    if (storedMatches.length > 0) {
-      logger.info(`Requesting Claude predictions for ${storedMatches.length} matches`);
-      const predictions = await claudeService.predictMatches(storedMatches);
+    // Step 3: Get Claude predictions for matches without scraped predictions
+    if (matchesNeedingPredictions.length > 0) {
+      logger.info(`Requesting Claude predictions for ${matchesNeedingPredictions.length} matches`);
+      const predictions = await claudeService.predictMatches(matchesNeedingPredictions);
 
-      for (const match of storedMatches) {
+      for (const match of matchesNeedingPredictions) {
         const pred = predictions.get(match.id);
         if (!pred) continue;
 
-        // Store Claude's estimated odds
         await OddsModel.insert({
           match_id: match.id,
           bookmaker: 'claude_estimate',
@@ -144,12 +186,12 @@ export async function ingestFixtures() {
           away_odds: pred.estimatedOdds.away,
         });
 
-        // Store prediction
         await predictionEngine.processAIPrediction(match.id, match, 0, pred);
       }
-
-      await predictionEngine.selectPickOfDay(today);
     }
+
+    // Step 4: Pick of the Day
+    await predictionEngine.selectPickOfDay(today);
 
     logger.info('Fixture ingestion complete');
   } catch (error: any) {

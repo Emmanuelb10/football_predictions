@@ -21,15 +21,12 @@ router.get('/health', async (_req: Request, res: Response) => {
   });
 });
 
-// Manual trigger for fixture ingestion
-router.post('/trigger/ingest', async (_req: Request, res: Response) => {
-  try {
-    const { ingestFixtures } = await import('../cron/fixtureIngestion');
-    await ingestFixtures();
-    res.json({ status: 'ok', message: 'Fixture ingestion triggered' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
+// Manual trigger for fixture ingestion (accepts ?date=YYYY-MM-DD) — fire and forget
+router.post('/trigger/ingest', async (req: Request, res: Response) => {
+  const { ingestFixtures } = await import('../cron/fixtureIngestion');
+  const date = req.query.date as string | undefined;
+  res.json({ status: 'ok', message: `Fixture ingestion started for ${date || 'today'}` });
+  ingestFixtures(date).catch((e: any) => console.error('Ingestion error:', e.message));
 });
 
 // Manual trigger for odds sync

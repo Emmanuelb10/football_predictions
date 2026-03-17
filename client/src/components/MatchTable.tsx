@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import InfoTip from './InfoTip';
 
 interface MatchTableProps {
@@ -16,8 +15,6 @@ const TIERS = [
 ];
 
 export default function MatchTable({ matches, loading, date, isFetching, settledIds }: MatchTableProps) {
-  const [showNonValue, setShowNonValue] = useState(false);
-
   if (loading) {
     return (
       <div className="card">
@@ -168,49 +165,18 @@ export default function MatchTable({ matches, loading, date, isFetching, settled
           <p className="text-lg mb-2">No matches found for this date</p>
         </div>
       ) : (
-        <>
-          {/* Tiered value bets */}
-          {tiered.map(({ tier, matches: tierMatches }) =>
-            tierMatches.length > 0 ? (
-              <div key={tier.label} className="mb-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <div style={{ width: 12, height: 12, borderRadius: '50%', background: tier.accent }}></div>
-                  <span className="text-xs font-bold uppercase tracking-wider" style={{ color: tier.accent }}>
-                    {tier.label} ({tierMatches.length})
-                    <InfoTip text="A bet where the AI's probability exceeds what the odds imply (prob >= 70%, odds > 1.50)" />
-                  </span>
-                </div>
-                <div className="overflow-x-auto rounded-lg" style={{ background: tier.bg }}>
-                  <table className="w-full text-sm">
-                    {tableHeader}
-                    <tbody>{tierMatches.map((m: any) => renderRow(m, tier.accent))}</tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null
-          )}
-
-          {/* Non-value bets (collapsible) */}
-          {nonValue.length > 0 && (
-            <div className="mt-4">
-              <button
-                onClick={() => setShowNonValue(!showNonValue)}
-                className="text-sm font-medium mb-2 px-3 py-1.5 rounded-lg transition-colors"
-                style={{ background: 'var(--bg-primary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
-              >
-                {showNonValue ? 'Hide' : 'Show'} {nonValue.length} other matches
-              </button>
-              {showNonValue && (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    {tableHeader}
-                    <tbody>{nonValue.map((m: any) => renderRow(m))}</tbody>
-                  </table>
-                </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            {tableHeader}
+            <tbody>
+              {/* Render all matches in one table, tiered first then the rest */}
+              {tiered.map(({ tier, matches: tierMatches }) =>
+                tierMatches.map((m: any) => renderRow(m, tier.accent))
               )}
-            </div>
-          )}
-        </>
+              {nonValue.map((m: any) => renderRow(m))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

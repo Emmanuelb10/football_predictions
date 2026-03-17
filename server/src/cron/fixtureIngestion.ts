@@ -64,18 +64,19 @@ export async function ingestFixtures(targetDate?: string) {
       return;
     }
 
-    // Filter: 70%+ win probability AND the tipped outcome's odds in 1.50-1.99
+    // Filter: must have odds, 70%+ probability, tipped odds in 1.50-1.99
     const qualified = fixtures.filter(f => {
+      // Must have odds data
+      if (!f.homeOdds || !f.drawOdds || !f.awayOdds) return false;
+
       const maxProb = Math.max(f.homeWinProb || 0, f.drawProb || 0, f.awayWinProb || 0);
       if (maxProb < 0.70) return false;
 
-      // Check if the tipped outcome has odds in the 1.50-1.99 range
       const tipOdds =
-        f.tip === '1' ? (f.homeOdds || 0) :
-        f.tip === '2' ? (f.awayOdds || 0) :
-        (f.drawOdds || 0);
-      // Accept if odds in range, or if no odds data yet (will filter on frontend)
-      return tipOdds === 0 || (tipOdds >= 1.50 && tipOdds <= 1.99);
+        f.tip === '1' ? f.homeOdds :
+        f.tip === '2' ? f.awayOdds :
+        f.drawOdds;
+      return tipOdds >= 1.50 && tipOdds <= 1.99;
     });
 
     const allMatches = qualified.length > 0 ? qualified : fixtures.filter(f =>
@@ -135,7 +136,7 @@ export async function ingestFixtures(targetDate?: string) {
         away_score: f.awayScore ?? null,
       });
 
-      // Store scraped odds if available
+      // Store scraped odds — skip match entirely if no odds
       if (f.homeOdds && f.drawOdds && f.awayOdds) {
         await OddsModel.insert({
           match_id: match.id,

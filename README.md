@@ -1,24 +1,25 @@
-# Football Predictions — AI-Powered Value Bet Finder
+# Football Predictions — AI-Powered Betting Helper
 
-A full-stack sports analytics platform that identifies value bets across Europe's top football leagues using Claude AI for predictions and free web data for fixtures.
+A full-stack sports analytics platform that identifies value bets with deep analytics, live result tracking, and accumulator suggestions. Scrapes real fixtures and odds from prosoccer.gr, syncs results from livescore.com and sofascore, and uses Claude AI for predictions.
 
 ## Architecture
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│ TheSportsDB │────▶│  Node.js API │◀───▶│ PostgreSQL  │
-│  (fixtures) │     │  (Express)   │     │   17        │
-└─────────────┘     └──────┬───────┘     └─────────────┘
-                           │
-┌─────────────┐            │         ┌─────────────────┐
-│ Claude API  │◀───────────┤────────▶│ React Frontend  │
-│(predictions)│            │         │ (Vite + Tailwind)│
-└─────────────┘     ┌──────┴───────┐ └─────────────────┘
-                    │  Cron Jobs   │
-┌─────────────┐     │ - Fixtures   │
-│ 1xBet       │◀────│ - Odds       │
-│ (optional)  │     │ - Results    │
-└─────────────┘     └──────────────┘
+┌──────────────┐     ┌──────────────┐     ┌─────────────┐
+│ prosoccer.gr │────▶│  Node.js API │◀───▶│ PostgreSQL  │
+│(fixtures+odds)│     │  (Express)   │     │   17        │
+└──────────────┘     └──────┬───────┘     └─────────────┘
+                            │
+┌──────────────┐            │         ┌──────────────────┐
+│ Claude API   │◀───────────┤────────▶│  React Frontend  │
+│(HTML parsing │            │         │ (Vite + Tailwind) │
+│+ predictions)│     ┌──────┴───────┐ └──────────────────┘
+└──────────────┘     │  Cron Jobs   │
+                     │ - Fixtures   │
+┌──────────────┐     │ - Odds       │
+│ livescore.com│◀────│ - Results    │
+│ + sofascore  │     └──────────────┘
+└──────────────┘
 ```
 
 ## Tech Stack
@@ -28,15 +29,25 @@ A full-stack sports analytics platform that identifies value bets across Europe'
 | Runtime | Node.js 22 (NVM) on WSL2 |
 | Backend | Express + TypeScript |
 | Frontend | React 19, Vite 6, TailwindCSS 4, Recharts |
-| Database | PostgreSQL 17 |
-| AI | Claude API (predictions + odds estimation) |
-| Data | TheSportsDB free API (fixtures + results) |
-| Scraping | Puppeteer + Stealth (optional, for 1xBet odds) |
+| Database | PostgreSQL 17 (raw pg, not ORM) |
+| AI | Claude API (HTML parsing + predictions) |
+| Fixtures & Odds | prosoccer.gr (scraped via Claude) |
+| Results | livescore.com CDN API + sofascore API |
 | Process Mgr | PM2 |
 
-## Tracked Leagues
+## Features
 
-Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Primeira Liga, Eredivisie, Champions League, Europa League, Conference League
+- **Value bet detection**: Only shows matches with 70%+ win probability AND odds 1.50-1.99
+- **Pick of the Day**: AI-selected best bet with reasoning explanation
+- **Accumulator builder**: Best 2-fold, 3-fold, 4-fold combos with results tracking
+- **Confidence tiers**: Matches grouped by HIGH (90%+), STRONG (80-89%), VALUE (70-79%)
+- **Live result sync**: Scores from livescore.com + sofascore every 10 minutes
+- **Daily P&L banner**: Today's wins/losses, profit in units, current streak
+- **Performance analytics**: Hit ratio, ROI, Brier score, log loss, league breakdown
+- **Info tooltips**: Hover (i) icons for all betting terms (EV, POTD, ROI, etc.)
+- **Toast notifications**: Loading feedback when fetching/ingesting data
+- **Auto-ingest**: Selecting any date in the calendar auto-fetches data if not cached
+- **LAN access**: Accessible from any device on the local network
 
 ## Setup
 
@@ -46,12 +57,9 @@ Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Primeira Liga, Eredivisie
 
 ### 1. Install WSL dependencies
 ```bash
-# Install NVM + Node.js
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 source ~/.bashrc
 nvm install 22
-
-# Install PostgreSQL
 sudo apt-get install -y postgresql postgresql-contrib
 ```
 
@@ -87,30 +95,23 @@ npx knex seed:run --knexfile knexfile.ts
 
 ### 5. Build & run
 ```bash
-# Build server
-cd server && npx tsc
-
-# Start server (port 3001)
-node dist/index.js
-
-# In a new terminal — start frontend (port 3000)
-cd client && npm run dev
+cd server && npx tsc && node dist/index.js
 ```
 
-### 6. Ingest first data
-```bash
-curl -X POST http://localhost:3001/api/trigger/ingest
-```
+The server serves both the API and frontend on port 3001.
 
 ## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/health` | Server status, AI key status |
-| GET | `/api/matches?date=YYYY-MM-DD` | Matches with predictions + odds |
-| GET | `/api/predictions/pick-of-day?date=YYYY-MM-DD` | Pick of the Day |
-| GET | `/api/performance?days=30` | Hit ratio, ROI, Brier score, log loss |
-| POST | `/api/trigger/ingest` | Manual fixture + prediction ingestion |
+| GET | `/api/matches?date=YYYY-MM-DD` | Matches with predictions + odds (auto-ingests if empty) |
+| GET | `/api/predictions/pick-of-day?date=YYYY-MM-DD` | Pick of the Day with AI reasoning |
+| GET | `/api/predictions/accumulators?date=YYYY-MM-DD` | Best 2/3/4-fold combos with results |
+| GET | `/api/performance?days=30` | Hit ratio, ROI, Brier score, log loss, league breakdown |
+| GET | `/api/performance/daily?date=YYYY-MM-DD` | Daily P&L, wins/losses, streak |
+| GET | `/api/matches/settled?since=ISO` | Recently settled matches (for live polling) |
+| POST | `/api/trigger/ingest?date=YYYY-MM-DD` | Manual fixture ingestion |
 | POST | `/api/trigger/odds` | Manual odds sync |
 | POST | `/api/trigger/results` | Manual result sync |
 
@@ -118,32 +119,23 @@ curl -X POST http://localhost:3001/api/trigger/ingest
 
 | Time (UTC) | Job | Description |
 |-----------|-----|-------------|
-| 06:00 daily | Fixture ingestion | Scrape fixtures, Claude predictions |
-| Every 15 min | Odds sync | 1xBet scraper or Claude estimates |
-| Every 30 min (14:00–03:00) | Result sync | Update final scores |
+| 06:00 daily | Fixture ingestion | Scrape prosoccer.gr, Claude predictions |
+| Every 15 min | Odds sync | Optional 1xBet scraper |
+| Every 10 min (14:00-03:00) | Result sync | livescore.com + sofascore |
 
-## How Predictions Work
+## How It Works
 
-1. **Fixtures** scraped from TheSportsDB (free, no API key)
-2. **Claude AI** analyzes each match and returns:
-   - Home/Draw/Away probabilities
-   - Recommended tip (1, X, or 2)
-   - Estimated 1X2 betting odds
-3. **Value bet** flagged when: probability ≥ 70% AND odds > 1.50
-4. **Pick of the Day** selected by composite score:
-   - 30% Expected Value
-   - 25% League hit ratio
-   - 20% Team consistency (1/std deviation)
-   - 15% Poisson model agreement
-   - 10% Line movement
+1. **prosoccer.gr** scraped for fixtures with probabilities and real bookmaker odds
+2. **Claude API** parses the HTML and extracts structured match data
+3. **Filtered** to matches with 70%+ probability AND tipped odds 1.50-1.99
+4. Matches without odds are excluded
+5. **Pick of the Day** selected by composite score (EV, Poisson, league hit ratio)
+6. **Results** synced from livescore.com CDN API with sofascore fallback
+7. Fuzzy team name matching handles naming differences between sources
 
-## Production (PM2)
+## LAN Access
 
-```bash
-npm run build
-pm2 start ecosystem.config.js
-pm2 save && pm2 startup
-```
+Uses WSL2 mirrored networking (`~/.wslconfig: networkingMode=mirrored`). Server binds to `0.0.0.0:3001`, accessible at `http://<host-ip>:3001` from any device on the network.
 
 ## License
 

@@ -93,9 +93,23 @@ router.get('/accumulators', async (req: Request, res: Response) => {
       }
     }
 
-    // Sort by combined EV, take top 5
+    // Pick the BEST accumulator per size (2-fold, 3-fold, 4-fold)
+    // Sort each size by EV, take only the top one per size
     accumulators.sort((a, b) => b.combinedEV - a.combinedEV);
-    res.json({ date, accumulators: accumulators.slice(0, 5) });
+
+    const bestPerSize: any[] = [];
+    const usedSizes = new Set<number>();
+    for (const acc of accumulators) {
+      if (!usedSizes.has(acc.size)) {
+        usedSizes.add(acc.size);
+        bestPerSize.push(acc);
+      }
+      if (bestPerSize.length >= 3) break;
+    }
+
+    // Sort final output: 2-fold, 3-fold, 4-fold
+    bestPerSize.sort((a, b) => a.size - b.size);
+    res.json({ date, accumulators: bestPerSize });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

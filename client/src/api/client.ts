@@ -54,3 +54,8 @@ export async function fetchSettled(since: string) {
   const { data } = await api.get(`/matches/settled?since=${since}`);
   return data;
 }
+
+export async function fetchPotdHistory(days: number = 30) {
+  const { data } = await api.get(`/predictions/potd-history?days=${days}`);
+  return data;
+}

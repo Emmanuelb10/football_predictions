@@ -6,8 +6,9 @@ import MatchTable from './components/MatchTable';
 import PerformancePanel from './components/PerformancePanel';
 import DailyPLBanner from './components/DailyPLBanner';
 import AccumulatorCard from './components/AccumulatorCard';
+import PotdHistory from './components/PotdHistory';
 import { useToast } from './components/ToastContainer';
-import { useMatches, usePickOfDay, usePerformance, useDailyPL, useAccumulators, useSettled } from './hooks/useMatches';
+import { useMatches, usePickOfDay, usePerformance, useDailyPL, useAccumulators, useSettled, usePotdHistory } from './hooks/useMatches';
 
 export default function App() {
   const [date, setDate] = useState(dayjs().format('YYYY-MM-DD'));
@@ -19,6 +20,7 @@ export default function App() {
   const { data: dailyPL } = useDailyPL(date);
   const { data: accData } = useAccumulators(matchData?.matches?.length ? date : '');
   const { data: settledData } = useSettled();
+  const { data: potdHistoryData } = usePotdHistory();
   const { addToast } = useToast();
 
   // Track settled match IDs for flash animation
@@ -89,6 +91,9 @@ export default function App() {
           isFetching={isFetching}
           settledIds={settledIds}
         />
+
+        {/* POTD History Table */}
+        <PotdHistory data={potdHistoryData} />
       </main>
     </div>
   );

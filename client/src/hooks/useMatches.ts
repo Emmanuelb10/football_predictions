@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchMatches, fetchPickOfDay, fetchPerformance, fetchDailyPL, fetchAccumulators, fetchSettled } from '../api/client';
+import { fetchMatches, fetchPickOfDay, fetchPerformance, fetchDailyPL, fetchAccumulators, fetchSettled, fetchPotdHistory } from '../api/client';
 
 export function useMatches(date: string) {
   return useQuery({
@@ -50,5 +50,13 @@ export function useSettled() {
     queryKey: ['settled'],
     queryFn: () => fetchSettled(new Date(Date.now() - 300000).toISOString()),
     refetchInterval: 30000,
+  });
+}
+
+export function usePotdHistory() {
+  return useQuery({
+    queryKey: ['potd-history'],
+    queryFn: () => fetchPotdHistory(30),
+    refetchInterval: 300000,
   });
 }

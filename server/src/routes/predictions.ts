@@ -23,6 +23,7 @@ router.get('/accumulators', async (req: Request, res: Response) => {
     const result = await query(
       `SELECT p.match_id, p.tip, p.confidence, p.expected_value,
               ht.name as home_team, at2.name as away_team, t.name as tournament,
+              m.status, m.home_score, m.away_score,
               oh.home_odds, oh.draw_odds, oh.away_odds
        FROM predictions p
        JOIN matches m ON p.match_id = m.id
@@ -37,6 +38,11 @@ router.get('/accumulators', async (req: Request, res: Response) => {
 
     const picks = result.rows.map((r: any) => {
       const odds = r.tip === '1' ? Number(r.home_odds) : r.tip === 'X' ? Number(r.draw_odds) : Number(r.away_odds);
+      let pickResult: 'pending' | 'won' | 'lost' = 'pending';
+      if (r.status === 'finished') {
+        const actual = r.home_score > r.away_score ? '1' : r.home_score < r.away_score ? '2' : 'X';
+        pickResult = r.tip === actual ? 'won' : 'lost';
+      }
       return {
         matchId: r.match_id,
         homeTeam: r.home_team,
@@ -45,6 +51,8 @@ router.get('/accumulators', async (req: Request, res: Response) => {
         tip: r.tip,
         confidence: Number(r.confidence),
         odds: odds || 1.8,
+        result: pickResult,
+        score: r.status === 'finished' ? `${r.home_score}-${r.away_score}` : null,
       };
     });
 
@@ -65,6 +73,13 @@ router.get('/accumulators', async (req: Request, res: Response) => {
         const leagues = new Set(combo.map((p: any) => p.tournament));
         const diversityScore = leagues.size / combo.length;
 
+        // Determine accumulator result: won only if ALL legs won
+        const allSettled = combo.every((p: any) => p.result !== 'pending');
+        const allWon = combo.every((p: any) => p.result === 'won');
+        const anyLost = combo.some((p: any) => p.result === 'lost');
+        const accResult: 'pending' | 'won' | 'lost' = anyLost ? 'lost' : allSettled && allWon ? 'won' : 'pending';
+        const payout = accResult === 'won' ? +combinedOdds.toFixed(2) : accResult === 'lost' ? -1 : 0;
+
         accumulators.push({
           picks: combo,
           size,
@@ -72,6 +87,8 @@ router.get('/accumulators', async (req: Request, res: Response) => {
           combinedProb: +combinedProb.toFixed(4),
           combinedEV: +combinedEV.toFixed(4),
           diversityScore: +diversityScore.toFixed(2),
+          result: accResult,
+          payout,
         });
       }
     }

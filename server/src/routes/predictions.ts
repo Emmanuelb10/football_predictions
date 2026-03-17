@@ -139,15 +139,18 @@ router.get('/potd-history', async (req: Request, res: Response) => {
       [days]
     );
 
-    const history = result.rows.map((r: any) => {
+    // Build a map of POTD picks by date
+    const picksByDate = new Map<string, any>();
+    for (const r of result.rows) {
+      const dateStr = dayjs(r.date).format('YYYY-MM-DD');
       const tipOdds = r.tip === '1' ? Number(r.home_odds) : r.tip === 'X' ? Number(r.draw_odds) : Number(r.away_odds);
       let outcome: 'pending' | 'won' | 'lost' = 'pending';
       if (r.status === 'finished') {
         const actual = r.home_score > r.away_score ? '1' : r.home_score < r.away_score ? '2' : 'X';
         outcome = r.tip === actual ? 'won' : 'lost';
       }
-      return {
-        date: r.date,
+      picksByDate.set(dateStr, {
+        date: dateStr,
         homeTeam: r.home_team,
         awayTeam: r.away_team,
         tournament: r.tournament,
@@ -159,17 +162,34 @@ router.get('/potd-history', async (req: Request, res: Response) => {
         outcome,
         reasoning: r.reasoning || '',
         profit: outcome === 'won' ? +(tipOdds - 1).toFixed(2) : outcome === 'lost' ? -1 : 0,
-      };
-    });
+      });
+    }
 
-    const settled = history.filter((h: any) => h.outcome !== 'pending');
+    // Fill in every day for the full month
+    const history: any[] = [];
+    const today = dayjs();
+    for (let i = 0; i < days; i++) {
+      const d = today.subtract(i, 'day').format('YYYY-MM-DD');
+      if (picksByDate.has(d)) {
+        history.push(picksByDate.get(d));
+      } else {
+        history.push({
+          date: d, homeTeam: null, awayTeam: null, tournament: null,
+          tip: null, confidence: 0, odds: 0, ev: 0,
+          score: null, outcome: 'none', reasoning: '', profit: 0,
+        });
+      }
+    }
+
+    const withPicks = history.filter((h: any) => h.outcome !== 'none');
+    const settled = withPicks.filter((h: any) => h.outcome === 'won' || h.outcome === 'lost');
     const wins = settled.filter((h: any) => h.outcome === 'won').length;
     const totalProfit = settled.reduce((sum: number, h: any) => sum + h.profit, 0);
 
     res.json({
       history,
       summary: {
-        total: history.length,
+        total: withPicks.length,
         settled: settled.length,
         wins,
         losses: settled.length - wins,

@@ -7,6 +7,7 @@ import PerformancePanel from './components/PerformancePanel';
 import DailyPLBanner from './components/DailyPLBanner';
 import AccumulatorCard from './components/AccumulatorCard';
 import PotdHistory from './components/PotdHistory';
+import Glossary from './components/Glossary';
 import { useToast } from './components/ToastContainer';
 import { useMatches, usePickOfDay, usePerformance, useDailyPL, useAccumulators, useSettled, usePotdHistory } from './hooks/useMatches';
 
@@ -94,6 +95,9 @@ export default function App() {
 
         {/* POTD History Table */}
         <PotdHistory data={potdHistoryData} />
+
+        {/* Glossary */}
+        <Glossary />
       </main>
     </div>
   );

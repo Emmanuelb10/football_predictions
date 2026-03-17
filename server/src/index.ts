@@ -15,17 +15,16 @@ app.use(express.json());
 // API routes
 app.use('/api', routes);
 
-// Serve client in production
-if (env.NODE_ENV === 'production') {
-  const path = require('path');
-  app.use(express.static(path.join(__dirname, '../../client/dist')));
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(__dirname, '../../client/dist/index.html'));
-  });
-}
+// Serve client build (frontend)
+import path from 'path';
+const clientDist = path.join(__dirname, '../../client/dist');
+app.use(express.static(clientDist));
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(clientDist, 'index.html'));
+});
 
-app.listen(env.PORT, () => {
-  logger.info(`Server running on port ${env.PORT} (${env.NODE_ENV})`);
+app.listen(env.PORT, '0.0.0.0', () => {
+  logger.info(`Server running on 0.0.0.0:${env.PORT} (${env.NODE_ENV})`);
   startCronJobs();
 });
 

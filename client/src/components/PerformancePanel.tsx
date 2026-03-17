@@ -1,4 +1,5 @@
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import InfoTip from './InfoTip';
 
 interface PerformancePanelProps {
   data: {
@@ -45,24 +46,28 @@ export default function PerformancePanel({ data }: PerformancePanelProps) {
   const statCards = [
     {
       label: 'Hit Ratio',
+      tip: 'Percentage of correct predictions out of total settled picks',
       value: `${(summary.hitRatio * 100).toFixed(1)}%`,
       color: summary.hitRatio >= 0.6 ? 'var(--accent-green)' : summary.hitRatio >= 0.5 ? 'var(--accent-yellow)' : 'var(--accent-red)',
       sub: `${summary.wins}W - ${summary.losses}L`,
     },
     {
       label: 'ROI',
+      tip: 'Return on Investment — total profit divided by total staked, as a percentage',
       value: `${summary.roi > 0 ? '+' : ''}${summary.roi}%`,
       color: summary.roi > 0 ? 'var(--accent-green)' : 'var(--accent-red)',
       sub: `${summary.totalPicks} picks`,
     },
     {
       label: 'Brier Score',
+      tip: 'Measures prediction accuracy (0 = perfect, lower is better)',
       value: summary.brierScore.toFixed(4),
       color: summary.brierScore < 0.25 ? 'var(--accent-green)' : 'var(--accent-yellow)',
       sub: 'Lower is better',
     },
     {
       label: 'Log Loss',
+      tip: 'Penalizes confident wrong predictions more heavily (lower is better)',
       value: summary.logLoss.toFixed(4),
       color: summary.logLoss < 0.5 ? 'var(--accent-green)' : 'var(--accent-yellow)',
       sub: 'Lower is better',
@@ -81,7 +86,7 @@ export default function PerformancePanel({ data }: PerformancePanelProps) {
         {statCards.map((s) => (
           <div key={s.label} className="card text-center">
             <p className="text-xs mb-1 uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
-              {s.label}
+              {s.label}{s.tip && <InfoTip text={s.tip} />}
             </p>
             <p className="text-2xl font-bold" style={{ color: s.color }}>
               {s.value}

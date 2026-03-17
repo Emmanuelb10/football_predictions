@@ -15,20 +15,25 @@ router.get('/', async (req: Request, res: Response) => {
     const date = (req.query.date as string) || dayjs().format('YYYY-MM-DD');
     let matches = await MatchModel.findByDate(date);
 
-    // If no matches for this date, auto-ingest from prosoccer.gr
+    // Auto-ingest if no matches exist for this date (only once per date)
     if (matches.length === 0 && !ingestingDates.has(date)) {
-      ingestingDates.add(date);
-      logger.info(`No data for ${date}, auto-ingesting...`);
-
-      try {
-        const { ingestFixtures } = await import('../cron/fixtureIngestion');
-        await ingestFixtures(date);
-        matches = await MatchModel.findByDate(date);
-        logger.info(`Auto-ingested ${matches.length} matches for ${date}`);
-      } catch (err: any) {
-        logger.error(`Auto-ingest failed for ${date}: ${err.message}`);
-      } finally {
-        ingestingDates.delete(date);
+      // Check if we already tried this date (avoid repeated scraping on empty days)
+      const attempted = await query(
+        `SELECT COUNT(*) as c FROM matches WHERE DATE(kickoff AT TIME ZONE 'UTC') = $1`, [date]
+      );
+      if (Number(attempted.rows[0].c) === 0) {
+        ingestingDates.add(date);
+        logger.info(`No data for ${date}, auto-ingesting...`);
+        try {
+          const { ingestFixtures } = await import('../cron/fixtureIngestion');
+          await ingestFixtures(date);
+          matches = await MatchModel.findByDate(date);
+          logger.info(`Auto-ingested ${matches.length} matches for ${date}`);
+        } catch (err: any) {
+          logger.error(`Auto-ingest failed for ${date}: ${err.message}`);
+        } finally {
+          ingestingDates.delete(date);
+        }
       }
     }
 

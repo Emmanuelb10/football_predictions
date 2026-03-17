@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import InfoTip from './InfoTip';
 
 interface MatchTableProps {
   matches: any[];
@@ -139,10 +140,10 @@ export default function MatchTable({ matches, loading, date, isFetching, settled
         <th className="text-left py-2 px-2 font-medium">Time</th>
         <th className="text-left py-2 px-2 font-medium">Home</th>
         <th className="text-left py-2 px-2 font-medium">Away</th>
-        <th className="text-center py-2 px-2 font-medium">Prob</th>
-        <th className="text-center py-2 px-2 font-medium">Tip</th>
+        <th className="text-center py-2 px-2 font-medium">Prob<InfoTip text="The AI's estimated probability of the tipped outcome winning" /></th>
+        <th className="text-center py-2 px-2 font-medium">Tip<InfoTip text="Predicted outcome: 1 = Home Win, X = Draw, 2 = Away Win" /></th>
         <th className="text-center py-2 px-2 font-medium">Odds (H/D/A)</th>
-        <th className="text-center py-2 px-2 font-medium">EV</th>
+        <th className="text-center py-2 px-2 font-medium">EV<InfoTip text="Expected Value — positive EV means profitable long-term. EV = (probability x odds) - 1" /></th>
         <th className="text-center py-2 px-2 font-medium">Result</th>
       </tr>
     </thead>

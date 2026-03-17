@@ -1,3 +1,5 @@
+import InfoTip from './InfoTip';
+
 interface AccumulatorCardProps {
   data: {
     accumulators: Array<{
@@ -19,7 +21,7 @@ export default function AccumulatorCard({ data }: AccumulatorCardProps) {
   return (
     <div className="card">
       <h2 className="text-lg font-bold mb-3" style={{ color: 'var(--text-primary)' }}>
-        &#127922; Accumulator Suggestions
+        &#127922; Accumulator Suggestions<InfoTip text="A multi-bet combining several picks. All legs must win. Combined odds = odds multiplied together" />
       </h2>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {data.accumulators.slice(0, 3).map((acc, i) => {

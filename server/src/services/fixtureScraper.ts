@@ -62,12 +62,31 @@ const LEAGUE_CODE_MAP: Record<string, { name: string; country: string }> = {
 };
 
 /**
+ * Build prosoccer.gr URL for a specific date.
+ */
+function getProsoccerUrl(date: string): string {
+  const target = new Date(date + 'T12:00:00Z');
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+
+  const diffDays = Math.round((target.getTime() - today.getTime()) / 86400000);
+
+  if (diffDays === 0) return 'https://www.prosoccer.gr/en/football/predictions';
+  if (diffDays === -1) return 'https://www.prosoccer.gr/en/football/predictions/yesterday.html';
+  if (diffDays === 1) return 'https://www.prosoccer.gr/en/football/predictions/tomorrow.html';
+
+  // For other days within the week, use day name
+  const dayName = target.toLocaleDateString('en-US', { weekday: 'long' });
+  return `https://www.prosoccer.gr/en/football/predictions/${dayName}.html`;
+}
+
+/**
  * Scrape fixtures from prosoccer.gr using Claude to parse the page content.
  */
 export async function scrapeFixtures(date: string): Promise<ScrapedFixture[]> {
   try {
-    // Fetch the prosoccer.gr page
-    const url = 'https://www.prosoccer.gr/en/football/predictions';
+    const url = getProsoccerUrl(date);
+    logger.info(`Scraping ${url} for ${date}`);
     const { data: html } = await axios.get(url, {
       timeout: 20000,
       headers: {

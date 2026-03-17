@@ -1,3 +1,5 @@
+import InfoTip from './InfoTip';
+
 interface DailyPLBannerProps {
   data: {
     totalPicks: number;
@@ -40,7 +42,7 @@ export default function DailyPLBanner({ data }: DailyPLBannerProps) {
 
       {/* Profit */}
       <div className="text-center">
-        <p className="text-xs uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Profit/Loss</p>
+        <p className="text-xs uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Profit/Loss<InfoTip text="Standard bet sizing — 1 unit = your base stake. Profit shown in units for consistency" /></p>
         <p
           className="text-2xl font-bold"
           style={{ color: isProfit ? 'var(--accent-green)' : 'var(--accent-red)' }}
@@ -51,7 +53,7 @@ export default function DailyPLBanner({ data }: DailyPLBannerProps) {
 
       {/* Streak */}
       <div className="flex items-center gap-2">
-        <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Streak</span>
+        <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Streak<InfoTip text="Consecutive wins (W) or losses (L) across recent settled value bets" /></span>
         <span
           className="px-3 py-1 rounded-full text-sm font-bold"
           style={{ background: `${streakColor}20`, color: streakColor }}

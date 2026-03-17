@@ -121,6 +121,7 @@ router.get('/potd-history', async (req: Request, res: Response) => {
     const days = parseInt(req.query.days as string) || 30;
     const result = await query(
       `SELECT DATE(m.kickoff AT TIME ZONE 'UTC') as date,
+              TO_CHAR(m.kickoff AT TIME ZONE 'UTC', 'HH24:MI') as kickoff_time,
               ht.name as home_team, at2.name as away_team,
               t.name as tournament,
               p.tip, p.confidence, p.expected_value,
@@ -151,6 +152,7 @@ router.get('/potd-history', async (req: Request, res: Response) => {
       }
       picksByDate.set(dateStr, {
         date: dateStr,
+        kickoffTime: r.kickoff_time || '',
         homeTeam: r.home_team,
         awayTeam: r.away_team,
         tournament: r.tournament,
@@ -174,7 +176,7 @@ router.get('/potd-history', async (req: Request, res: Response) => {
         history.push(picksByDate.get(d));
       } else {
         history.push({
-          date: d, homeTeam: null, awayTeam: null, tournament: null,
+          date: d, kickoffTime: '', homeTeam: null, awayTeam: null, tournament: null,
           tip: null, confidence: 0, odds: 0, ev: 0,
           score: null, outcome: 'none', reasoning: '', profit: 0,
         });

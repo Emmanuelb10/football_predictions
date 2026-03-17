@@ -22,7 +22,9 @@
       "Bash(powershell.exe -Command \"Get-NetFirewallRule -DisplayName 'Football*' 2>null | Select-Object DisplayName,Enabled,Direction,Action | Format-Table\" 2>&1)",
       "WebFetch(domain:www.prosoccer.gr)",
       "WebFetch(domain:www.livescore.com)",
-      "WebFetch(domain:prod-cdn-public-api.livescore.com)"
+      "WebFetch(domain:prod-cdn-public-api.livescore.com)",
+      "Bash(docker --version)",
+      "Bash(\"/c/Program Files/Docker/Docker/resources/bin/docker\" --version)"
     ]
   }
 }

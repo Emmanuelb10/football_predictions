@@ -1,0 +1,12 @@
+node_modules
+server/node_modules
+client/node_modules
+server/dist
+client/dist
+.git
+.env
+*.log
+logs
+*.png
+*.docx
+null

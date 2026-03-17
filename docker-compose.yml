@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: football_app
+      POSTGRES_PASSWORD: football_pass
+      POSTGRES_DB: football_predictions
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U football_app -d football_predictions"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=football_predictions
+      - DB_USER=football_app
+      - DB_PASS=football_pass
+      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "
+        cd server &&
+        npx knex migrate:latest --knexfile knexfile.ts 2>/dev/null;
+        npx knex seed:run --knexfile knexfile.ts 2>/dev/null;
+        cd .. &&
+        node server/dist/index.js
+      "
+
+volumes:
+  pgdata:

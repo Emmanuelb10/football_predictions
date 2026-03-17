@@ -4,6 +4,7 @@ interface PotdHistoryProps {
   data: {
     history: Array<{
       date: string;
+      kickoffTime: string;
       homeTeam: string;
       awayTeam: string;
       tournament: string;
@@ -65,6 +66,7 @@ export default function PotdHistory({ data }: PotdHistoryProps) {
           <thead>
             <tr style={{ color: 'var(--text-secondary)', fontSize: 12, borderBottom: '1px solid var(--border)' }}>
               <th className="text-left py-2 px-2 font-medium">Date</th>
+              <th className="text-center py-2 px-2 font-medium">Time</th>
               <th className="text-left py-2 px-2 font-medium">Match</th>
               <th className="text-left py-2 px-2 font-medium">League</th>
               <th className="text-center py-2 px-2 font-medium">Tip</th>
@@ -90,7 +92,7 @@ export default function PotdHistory({ data }: PotdHistoryProps) {
                       <div className="text-xs font-medium">{dateStr}</div>
                       <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{dayStr}</div>
                     </td>
-                    <td colSpan={9} className="py-2 px-2 text-xs text-center" style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                    <td colSpan={10} className="py-2 px-2 text-xs text-center" style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>
                       No qualifying pick
                     </td>
                   </tr>
@@ -108,6 +110,9 @@ export default function PotdHistory({ data }: PotdHistoryProps) {
                   <td className="py-2.5 px-2">
                     <div className="text-xs font-medium">{dateStr}</div>
                     <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{dayStr}</div>
+                  </td>
+                  <td className="py-2.5 px-2 text-center text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    {h.kickoffTime || '-'}
                   </td>
                   <td className="py-2.5 px-2 font-medium text-sm">
                     {h.homeTeam} vs {h.awayTeam}

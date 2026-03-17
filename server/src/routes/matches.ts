@@ -54,7 +54,15 @@ router.get('/', async (req: Request, res: Response) => {
       };
     });
 
-    res.json({ date, matches: enriched });
+    // Filter: only show matches where the tipped odds are in 1.50-1.99
+    const filtered = enriched.filter((m: any) => {
+      if (!m.odds || m.odds.length === 0) return true; // keep if no odds yet
+      const o = m.odds[0];
+      const tipOdds = m.tip === '1' ? o.home : m.tip === '2' ? o.away : o.draw;
+      return tipOdds >= 1.50 && tipOdds <= 1.99;
+    });
+
+    res.json({ date, matches: filtered });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

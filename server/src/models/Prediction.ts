@@ -17,25 +17,26 @@ export interface Prediction {
   std_deviation: number | null;
   line_movement: number | null;
   source: string;
+  reasoning: string;
 }
 
 export async function upsert(data: Partial<Prediction>): Promise<Prediction> {
   const res = await query(
     `INSERT INTO predictions (match_id, home_win_prob, draw_prob, away_win_prob, tip, confidence,
        expected_value, is_value_bet, is_pick_of_day, potd_rank_score, poisson_score,
-       league_hit_ratio, std_deviation, line_movement, source)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       league_hit_ratio, std_deviation, line_movement, source, reasoning)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
      ON CONFLICT (match_id) DO UPDATE SET
        home_win_prob=$2, draw_prob=$3, away_win_prob=$4, tip=$5, confidence=$6,
        expected_value=$7, is_value_bet=$8, poisson_score=$11,
-       league_hit_ratio=$12, source=$15
+       league_hit_ratio=$12, source=$15, reasoning=$16
      RETURNING *`,
     [
       data.match_id, data.home_win_prob, data.draw_prob, data.away_win_prob,
       data.tip, data.confidence, data.expected_value ?? 0, data.is_value_bet ?? false,
       data.is_pick_of_day ?? false, data.potd_rank_score ?? null, data.poisson_score ?? null,
       data.league_hit_ratio ?? null, data.std_deviation ?? null, data.line_movement ?? null,
-      data.source ?? 'claude',
+      data.source ?? 'claude', data.reasoning ?? '',
     ]
   );
   return res.rows[0];

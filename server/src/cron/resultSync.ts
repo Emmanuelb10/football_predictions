@@ -1,7 +1,7 @@
 import dayjs from 'dayjs';
 import logger from '../config/logger';
 import { query } from '../config/database';
-import * as fixtureScraper from '../services/fixtureScraper';
+import { fetchFinishedResults, fetchSofascoreResults, teamsMatch } from '../services/livescoreFetcher';
 import * as MatchModel from '../models/Match';
 
 export async function syncResults() {
@@ -25,11 +25,23 @@ export async function syncResults() {
     let updated = 0;
 
     for (const [date, matches] of byDate) {
-      // Re-scrape prosoccer.gr for this date — it may now show scores
-      logger.info(`Re-scraping prosoccer.gr for results on ${date}`);
-      const scraped = await fixtureScraper.scrapeFixtures(date);
+      // Fetch from livescore.com (primary)
+      let results = await fetchFinishedResults(date);
 
-      // Get team names for our pending matches
+      // If livescore returns few results, also try sofascore
+      if (results.length < 20) {
+        const sofaResults = await fetchSofascoreResults(date);
+        // Merge, dedup by team name
+        const seen = new Set(results.map(r => r.homeTeam.toUpperCase()));
+        for (const r of sofaResults) {
+          if (!seen.has(r.homeTeam.toUpperCase())) results.push(r);
+        }
+      }
+
+      if (results.length === 0) continue;
+      logger.info(`${results.length} finished results for ${date}`);
+
+      // Match each pending match
       for (const m of matches) {
         const res = await query(
           `SELECT ht.name as home, at2.name as away
@@ -39,21 +51,17 @@ export async function syncResults() {
         if (!res.rows[0]) continue;
         const { home, away } = res.rows[0];
 
-        // Try to find this match in the scraped data (fuzzy name matching)
-        const match = scraped.find(s =>
-          (s.homeTeam.toUpperCase().includes(home.toUpperCase()) ||
-           home.toUpperCase().includes(s.homeTeam.toUpperCase())) &&
-          (s.awayTeam.toUpperCase().includes(away.toUpperCase()) ||
-           away.toUpperCase().includes(s.awayTeam.toUpperCase()))
+        const result = results.find(lr =>
+          teamsMatch(home, lr.homeTeam) && teamsMatch(away, lr.awayTeam)
         );
 
-        if (match && match.homeScore != null && match.awayScore != null) {
+        if (result) {
           await query(
             'UPDATE matches SET home_score=$1, away_score=$2, status=$3, updated_at=NOW() WHERE id=$4',
-            [match.homeScore, match.awayScore, 'finished', m.id]
+            [result.homeScore, result.awayScore, 'finished', m.id]
           );
           updated++;
-          logger.info(`Result: ${home} ${match.homeScore}-${match.awayScore} ${away}`);
+          logger.info(`Result: ${home} ${result.homeScore}-${result.awayScore} ${away}`);
         }
       }
     }

@@ -71,6 +71,7 @@ async function storePrediction(matchId: number, pred: PredictionInput, matchApiI
     poisson_score: poissonScore,
     league_hit_ratio: leagueHitRatio,
     source,
+    reasoning: pred.reasoning || '',
   });
 
   logger.info(`Prediction [${source}] match ${matchApiId}: tip=${tip}, conf=${(confidence * 100).toFixed(1)}%, ev=${ev.toFixed(4)}, value=${valueBet}`);
@@ -119,8 +120,21 @@ export async function selectPickOfDay(date: string) {
   await PredictionModel.clearPickOfDay(date);
 
   if (valueBets.length === 1) {
-    await query('UPDATE predictions SET is_pick_of_day = true, potd_rank_score = 1 WHERE id = $1', [valueBets[0].id]);
-    return valueBets[0];
+    const vb = valueBets[0];
+    const det = await query(
+      `SELECT ht.name as home, at2.name as away, t.name as league
+       FROM matches m JOIN teams ht ON m.home_team_id=ht.id JOIN teams at2 ON m.away_team_id=at2.id
+       JOIN tournaments t ON m.tournament_id=t.id WHERE m.id=$1`, [vb.match_id]
+    );
+    const info = det.rows[0];
+    const tipL = vb.tip === '1' ? 'Home Win' : vb.tip === '2' ? 'Away Win' : 'Draw';
+    const reason = info
+      ? `${info.home} vs ${info.away} (${info.league}): ${tipL} at ${(Number(vb.confidence)*100).toFixed(0)}% confidence. ` +
+        `EV: ${Number(vb.expected_value) > 0 ? '+' : ''}${(Number(vb.expected_value)*100).toFixed(1)}%. ` +
+        `Only qualifying value bet for the day.`
+      : '';
+    await query('UPDATE predictions SET is_pick_of_day=true, potd_rank_score=1, reasoning=$1 WHERE id=$2', [reason, vb.id]);
+    return vb;
   }
 
   const candidates = await Promise.all(
@@ -151,10 +165,29 @@ export async function selectPickOfDay(date: string) {
   scored.sort((a, b) => b.potdScore - a.potdScore);
   const winner = scored[0];
 
+  // Get winner team names for reasoning
+  const detailRes = await query(
+    `SELECT ht.name as home, at2.name as away, t.name as league
+     FROM matches m JOIN teams ht ON m.home_team_id=ht.id JOIN teams at2 ON m.away_team_id=at2.id
+     JOIN tournaments t ON m.tournament_id=t.id WHERE m.id=$1`,
+    [winner.match_id]
+  );
+  const det = detailRes.rows[0];
+  const tipLabel = winner.tip === '1' ? 'Home Win' : winner.tip === '2' ? 'Away Win' : 'Draw';
+  let potdReason = '';
+  if (det) {
+    potdReason = `${tipLabel} at ${(Number(winner.confidence) * 100).toFixed(0)}% confidence. ` +
+      `EV: ${winner.ev > 0 ? '+' : ''}${(winner.ev * 100).toFixed(1)}%. ` +
+      `Ranked #1 of ${scored.length} value bets (score: ${winner.potdScore.toFixed(3)}) ` +
+      `based on expected value, league reliability, team consistency, and Poisson model agreement.`;
+  }
+  logger.info(`POTD reasoning: ${potdReason}`);
+
   for (const s of scored) {
+    const isPotd = s.id === winner.id;
     await query(
-      'UPDATE predictions SET potd_rank_score = $1, is_pick_of_day = $2, line_movement = $3 WHERE id = $4',
-      [s.potdScore, s.id === winner.id, s.lineMovement, s.id]
+      'UPDATE predictions SET potd_rank_score=$1, is_pick_of_day=$2, line_movement=$3, reasoning=$4 WHERE id=$5',
+      [s.potdScore, isPotd, s.lineMovement, isPotd ? potdReason : '', s.id]
     );
   }
 

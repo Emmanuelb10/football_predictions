@@ -64,14 +64,24 @@ export async function ingestFixtures(targetDate?: string) {
       return;
     }
 
-    // Filter: only keep matches with 70%+ win probability on any outcome
-    const highConfidence = fixtures.filter(f => {
+    // Filter: 70%+ win probability AND the tipped outcome's odds in 1.50-1.99
+    const qualified = fixtures.filter(f => {
       const maxProb = Math.max(f.homeWinProb || 0, f.drawProb || 0, f.awayWinProb || 0);
-      return maxProb >= 0.70;
+      if (maxProb < 0.70) return false;
+
+      // Check if the tipped outcome has odds in the 1.50-1.99 range
+      const tipOdds =
+        f.tip === '1' ? (f.homeOdds || 0) :
+        f.tip === '2' ? (f.awayOdds || 0) :
+        (f.drawOdds || 0);
+      // Accept if odds in range, or if no odds data yet (will filter on frontend)
+      return tipOdds === 0 || (tipOdds >= 1.50 && tipOdds <= 1.99);
     });
 
-    const allMatches = highConfidence.length > 0 ? highConfidence : fixtures;
-    logger.info(`${fixtures.length} total fixtures, ${highConfidence.length} with 70%+ probability`);
+    const allMatches = qualified.length > 0 ? qualified : fixtures.filter(f =>
+      Math.max(f.homeWinProb || 0, f.drawProb || 0, f.awayWinProb || 0) >= 0.70
+    );
+    logger.info(`${fixtures.length} total, ${qualified.length} with 70%+ prob AND odds 1.50-1.99`);
 
     if (allMatches.length === 0) {
       logger.info(`No qualifying fixtures for ${today}`);

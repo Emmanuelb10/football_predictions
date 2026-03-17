@@ -127,7 +127,7 @@ export default function MatchTable({ matches, loading, date, isFetching, settled
         <td className="py-2 px-2 text-center font-bold text-sm" style={{ color: getResultColor(m) }}>
           {getResult(m)}
           {m.status === 'finished' && won !== null && (
-            <span style={{ marginLeft: 4, fontSize: 11 }}>{won ? ' &#10003;' : ' &#10007;'}</span>
+            <span style={{ marginLeft: 4, fontSize: 11 }}>{won ? ' \u2713' : ' \u2717'}</span>
           )}
         </td>
       </tr>

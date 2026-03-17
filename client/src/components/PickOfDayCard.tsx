@@ -116,6 +116,16 @@ export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
           </div>
         </div>
       </div>
+
+      {/* AI Reasoning */}
+      {pick.reasoning && (
+        <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            <span className="font-semibold" style={{ color: 'var(--accent-blue)' }}>AI Analysis: </span>
+            {pick.reasoning}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

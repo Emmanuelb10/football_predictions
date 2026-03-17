@@ -118,8 +118,10 @@ export async function scrapeFixtures(date: string): Promise<ScrapedFixture[]> {
 Page text:
 ${text.substring(0, 30000)}
 
+Some matches may show a final score (e.g. "1-1" or "2-0") — include it if present.
+
 Return ONLY a JSON array with every match:
-[{"league":"EN1","time":"19:45","home":"BOLTON","away":"DONCASTER","homeProb":77,"drawProb":19,"awayProb":4,"tip":"1","homeOdds":1.60,"drawOdds":3.95,"awayOdds":4.50}]
+[{"league":"EN1","time":"19:45","home":"BOLTON","away":"DONCASTER","homeProb":77,"drawProb":19,"awayProb":4,"tip":"1","homeOdds":1.60,"drawOdds":3.95,"awayOdds":4.50,"score":"2-1"}]
 
 Rules:
 - Include EVERY match from the page, do not skip any
@@ -163,13 +165,28 @@ Rules:
         tip = h >= d && h >= a ? '1' : d >= a ? 'X' : '2';
       }
 
+      // Parse score if present (e.g. "2-1", "1-0")
+      let homeScore: number | undefined;
+      let awayScore: number | undefined;
+      let status: ScrapedFixture['status'] = 'scheduled';
+      if (m.score && typeof m.score === 'string') {
+        const scoreParts = m.score.match(/(\d+)\s*[-:]\s*(\d+)/);
+        if (scoreParts) {
+          homeScore = parseInt(scoreParts[1]);
+          awayScore = parseInt(scoreParts[2]);
+          status = 'finished';
+        }
+      }
+
       return {
         homeTeam: m.home,
         awayTeam: m.away,
         league: leagueInfo.name,
         country: leagueInfo.country,
         kickoff: m.time || '15:00',
-        status: 'scheduled' as const,
+        status,
+        homeScore,
+        awayScore,
         homeWinProb: (m.homeProb || 0) / 100,
         drawProb: (m.drawProb || 0) / 100,
         awayWinProb: (m.awayProb || 0) / 100,

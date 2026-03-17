@@ -35,7 +35,7 @@ export default function PerformancePanel({ data }: PerformancePanelProps) {
   if (summary.totalPicks === 0) {
     return (
       <div className="card">
-        <h2 className="text-lg font-bold mb-2">Performance</h2>
+        <h2 className="text-lg font-bold mb-2">Performance<InfoTip text="AI prediction accuracy over the last 30 days across all value bets" /></h2>
         <p style={{ color: 'var(--text-secondary)' }}>
           No settled predictions yet. Stats will appear once matches are completed.
         </p>

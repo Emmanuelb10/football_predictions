@@ -177,6 +177,7 @@ export default function MatchTable({ matches, loading, date, isFetching, settled
                   <div style={{ width: 12, height: 12, borderRadius: '50%', background: tier.accent }}></div>
                   <span className="text-xs font-bold uppercase tracking-wider" style={{ color: tier.accent }}>
                     {tier.label} ({tierMatches.length})
+                    <InfoTip text="A bet where the AI's probability exceeds what the odds imply (prob >= 70%, odds > 1.50)" />
                   </span>
                 </div>
                 <div className="overflow-x-auto rounded-lg" style={{ background: tier.bg }}>

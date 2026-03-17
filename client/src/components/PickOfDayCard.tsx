@@ -1,3 +1,5 @@
+import InfoTip from './InfoTip';
+
 interface PickOfDayCardProps {
   data: any;
   loading: boolean;
@@ -53,7 +55,7 @@ export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
         <div className="flex items-center gap-2">
           <span className="text-xl">&#127942;</span>
           <h2 className="text-lg font-bold" style={{ color: 'var(--accent-gold)' }}>
-            Pick of the Day
+            Pick of the Day<InfoTip text="The single best value bet ranked by a composite score of EV, Poisson model, league hit ratio, and line movement" />
           </h2>
         </div>
         <span className="badge badge-green">{tipLabel}</span>
@@ -80,13 +82,13 @@ export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
         {/* Stats */}
         <div className="flex gap-6 justify-center">
           <div className="text-center">
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Win Prob</p>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Win Prob<InfoTip text="The AI's estimated probability of the tipped outcome winning" /></p>
             <p className="text-2xl font-bold" style={{ color: 'var(--accent-green)' }}>
               {confidence}%
             </p>
           </div>
           <div className="text-center">
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Expected Value</p>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Expected Value<InfoTip text="EV = (probability x odds) - 1. Positive EV means profitable long-term" /></p>
             <p
               className="text-2xl font-bold"
               style={{ color: Number(pick.expected_value) > 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}

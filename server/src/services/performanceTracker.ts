@@ -32,6 +32,63 @@ export async function getDailyBreakdown(days: number = 30) {
   }));
 }
 
+export async function getDailyPL(date: string) {
+  const res = await query(
+    `SELECT p.tip, p.confidence, m.home_score, m.away_score, m.status,
+            COALESCE(oh.home_odds, oh.draw_odds, oh.away_odds, 1.8) as used_odds,
+            oh.home_odds, oh.draw_odds, oh.away_odds
+     FROM predictions p
+     JOIN matches m ON p.match_id = m.id
+     LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC LIMIT 1) oh ON true
+     WHERE p.is_value_bet = true AND DATE(m.kickoff AT TIME ZONE 'UTC') = $1`,
+    [date]
+  );
+
+  let wins = 0, losses = 0, pending = 0, profitUnits = 0;
+  for (const r of res.rows) {
+    if (r.status !== 'finished') { pending++; continue; }
+    const actual = r.home_score > r.away_score ? '1' : r.home_score < r.away_score ? '2' : 'X';
+    const tipOdds = r.tip === '1' ? Number(r.home_odds) : r.tip === 'X' ? Number(r.draw_odds) : Number(r.away_odds);
+    if (r.tip === actual) {
+      wins++;
+      profitUnits += (tipOdds || 1.8) - 1;
+    } else {
+      losses++;
+      profitUnits -= 1;
+    }
+  }
+
+  // Streak: last 50 settled value bets
+  const streakRes = await query(
+    `SELECT
+       (p.tip = '1' AND m.home_score > m.away_score) OR
+       (p.tip = '2' AND m.away_score > m.home_score) OR
+       (p.tip = 'X' AND m.home_score = m.away_score) as is_win
+     FROM predictions p JOIN matches m ON p.match_id = m.id
+     WHERE m.status = 'finished' AND p.is_value_bet = true
+     ORDER BY m.kickoff DESC LIMIT 50`
+  );
+
+  let streak = 0;
+  let streakType: 'W' | 'L' | null = null;
+  for (const r of streakRes.rows) {
+    const type = r.is_win ? 'W' : 'L';
+    if (streakType === null) streakType = type;
+    if (type === streakType) streak++;
+    else break;
+  }
+
+  return {
+    totalPicks: res.rows.length,
+    settled: wins + losses,
+    pending,
+    wins,
+    losses,
+    profitUnits: +profitUnits.toFixed(2),
+    streak: { type: streakType || 'W', count: streak },
+  };
+}
+
 export async function getOddsRangePerformance() {
   const res = await query(
     `SELECT

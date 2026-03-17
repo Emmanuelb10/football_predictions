@@ -56,3 +56,21 @@ body {
   background: rgba(59, 130, 246, 0.15);
   color: var(--accent-blue);
 }
+
+/* Result flash animations */
+@keyframes win-flash {
+  0%, 100% { background: transparent; }
+  25%, 75% { background: rgba(34, 197, 94, 0.2); }
+}
+@keyframes loss-flash {
+  0%, 100% { background: transparent; }
+  25%, 75% { background: rgba(239, 68, 68, 0.2); }
+}
+.animate-win-flash { animation: win-flash 2s ease-in-out 2; }
+.animate-loss-flash { animation: loss-flash 2s ease-in-out 2; }
+
+/* Toast */
+@keyframes toast-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}

@@ -39,3 +39,18 @@ export async function triggerResultSync() {
   const { data } = await api.post('/trigger/results');
   return data;
 }
+
+export async function fetchDailyPL(date: string) {
+  const { data } = await api.get(`/performance/daily?date=${date}`);
+  return data;
+}
+
+export async function fetchAccumulators(date: string) {
+  const { data } = await api.get(`/predictions/accumulators?date=${date}`);
+  return data;
+}
+
+export async function fetchSettled(since: string) {
+  const { data } = await api.get(`/matches/settled?since=${since}`);
+  return data;
+}

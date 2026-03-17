@@ -10,6 +10,7 @@ interface PerformancePanelProps {
       totalPicks: number;
       wins: number;
       losses: number;
+      byLeague?: Record<string, { wins: number; total: number; hitRatio: number }>;
     };
     daily: Array<{
       date: string;
@@ -159,6 +160,32 @@ export default function PerformancePanel({ data }: PerformancePanelProps) {
           </div>
         )}
       </div>
+
+      {/* League Performance */}
+      {summary.byLeague && Object.keys(summary.byLeague).length > 0 && (
+        <div className="card">
+          <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>
+            League Performance
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+            {Object.entries(summary.byLeague)
+              .sort((a, b) => b[1].total - a[1].total)
+              .map(([league, stats]) => {
+                const hr = stats.hitRatio;
+                const color = hr >= 0.6 ? 'var(--accent-green)' : hr >= 0.45 ? 'var(--accent-yellow)' : 'var(--accent-red)';
+                return (
+                  <div key={league} className="p-2 rounded-lg" style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)' }}>
+                    <p className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>{league}</p>
+                    <div className="flex justify-between items-center mt-1">
+                      <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{stats.total} picks</span>
+                      <span className="text-sm font-bold" style={{ color }}>{(hr * 100).toFixed(0)}%</span>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

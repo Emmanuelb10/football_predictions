@@ -17,11 +17,11 @@ export function startCronJobs() {
     await syncOdds();
   }, { timezone: 'UTC' });
 
-  // Result sync every 30 minutes between 14:00-03:00 UTC (peak match hours)
-  cron.schedule('*/30 14-23,0-3 * * *', async () => {
+  // Result sync every 10 minutes between 14:00-03:00 UTC (peak match hours)
+  cron.schedule('*/10 14-23,0-3 * * *', async () => {
     logger.info('CRON: Result sync starting');
     await syncResults();
   }, { timezone: 'UTC' });
 
-  logger.info('Cron jobs registered: fixture ingestion (06:00), odds sync (*/15min), result sync (*/30min 14-03)');
+  logger.info('Cron jobs registered: fixture ingestion (06:00), odds sync (*/15min), result sync (*/10min 14-03)');
 }

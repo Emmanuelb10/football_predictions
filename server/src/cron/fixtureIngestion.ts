@@ -59,28 +59,26 @@ export async function ingestFixtures(targetDate?: string) {
     logger.info('Scraping prosoccer.gr for fixtures...');
     let fixtures = await fixtureScraper.scrapeFixtures(today);
 
-    // Fallback to Claude if scraper fails
     if (fixtures.length === 0) {
-      logger.info('No fixtures from scraper, asking Claude...');
-      const claudeFixtures = await claudeService.fetchFixtures(today);
-      fixtures.push(...claudeFixtures.map(f => ({
-        ...f,
-        homeWinProb: undefined,
-        drawProb: undefined,
-        awayWinProb: undefined,
-        tip: undefined,
-        homeOdds: undefined,
-        drawOdds: undefined,
-        awayOdds: undefined,
-      })));
-    }
-
-    if (fixtures.length === 0) {
-      logger.info(`No fixtures found for ${today}`);
+      logger.info(`No fixtures scraped for ${today}`);
       return;
     }
 
-    logger.info(`Got ${fixtures.length} fixtures for ${today}`);
+    // Filter: only keep matches with 70%+ win probability on any outcome
+    const highConfidence = fixtures.filter(f => {
+      const maxProb = Math.max(f.homeWinProb || 0, f.drawProb || 0, f.awayWinProb || 0);
+      return maxProb >= 0.70;
+    });
+
+    const allMatches = highConfidence.length > 0 ? highConfidence : fixtures;
+    logger.info(`${fixtures.length} total fixtures, ${highConfidence.length} with 70%+ probability`);
+
+    if (allMatches.length === 0) {
+      logger.info(`No qualifying fixtures for ${today}`);
+      return;
+    }
+
+    logger.info(`Processing ${allMatches.length} fixtures for ${today}`);
 
     // Step 2: Store fixtures in DB
     let ingested = 0;
@@ -89,7 +87,7 @@ export async function ingestFixtures(targetDate?: string) {
       league: string; country: string; kickoff: string;
     }> = [];
 
-    for (const f of fixtures) {
+    for (const f of allMatches) {
       const leagueInfo = findLeague(f.league);
       if (!leagueInfo) continue;
 

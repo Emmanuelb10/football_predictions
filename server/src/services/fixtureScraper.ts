@@ -1,5 +1,6 @@
 import axios from 'axios';
 import logger from '../config/logger';
+import { env } from '../config/env';
 
 export interface ScrapedFixture {
   homeTeam: string;
@@ -19,14 +20,14 @@ export interface ScrapedFixture {
   awayOdds?: number;
 }
 
-// prosoccer.gr league code to our league name mapping
 const LEAGUE_CODE_MAP: Record<string, { name: string; country: string }> = {
   'EN0': { name: 'Premier League', country: 'England' },
-  'EPL': { name: 'Premier League', country: 'England' },
   'EN1': { name: 'English League One', country: 'England' },
   'EN2': { name: 'English League Two', country: 'England' },
+  'ENB': { name: 'English National League', country: 'England' },
+  'ENC': { name: 'English Championship', country: 'England' },
   'ES0': { name: 'La Liga', country: 'Spain' },
-  'ES1': { name: 'La Liga', country: 'Spain' },
+  'ES1': { name: 'La Liga 2', country: 'Spain' },
   'IT0': { name: 'Serie A', country: 'Italy' },
   'IT1': { name: 'Serie A', country: 'Italy' },
   'IT2': { name: 'Serie B', country: 'Italy' },
@@ -36,34 +37,37 @@ const LEAGUE_CODE_MAP: Record<string, { name: string; country: string }> = {
   'FR1': { name: 'Ligue 1', country: 'France' },
   'PT1': { name: 'Primeira Liga', country: 'Portugal' },
   'NL1': { name: 'Eredivisie', country: 'Netherlands' },
+  'NL2': { name: 'Eerste Divisie', country: 'Netherlands' },
   'ECL': { name: 'Champions League', country: 'Europe' },
   'EL1': { name: 'Europa League', country: 'Europe' },
   'ECO': { name: 'Conference League', country: 'Europe' },
   'TR1': { name: 'Super Lig', country: 'Turkey' },
   'SC0': { name: 'Scottish Premiership', country: 'Scotland' },
+  'SC2': { name: 'Scottish League One', country: 'Scotland' },
+  'SC3': { name: 'Scottish League Two', country: 'Scotland' },
   'GR1': { name: 'Super League', country: 'Greece' },
   'BE1': { name: 'Pro League', country: 'Belgium' },
   'AR1': { name: 'Liga Profesional', country: 'Argentina' },
   'BR1': { name: 'Serie A', country: 'Brazil' },
+  'AU1': { name: 'A-League', country: 'Australia' },
+  'BG1': { name: 'First League', country: 'Bulgaria' },
+  'CH1': { name: 'Super League', country: 'Switzerland' },
+  'PL1': { name: 'Ekstraklasa', country: 'Poland' },
+  'RUC': { name: 'Russian Cup', country: 'Russia' },
+  'KR1': { name: 'K League', country: 'South Korea' },
+  'KZ1': { name: 'Premier League', country: 'Kazakhstan' },
+  'CO1': { name: 'Liga BetPlay', country: 'Colombia' },
+  'ZA1': { name: 'Premier League', country: 'South Africa' },
+  'SKC': { name: 'Slovak Cup', country: 'Slovakia' },
 };
 
 /**
- * Scrape fixtures + predictions + odds from prosoccer.gr
+ * Scrape fixtures from prosoccer.gr using Claude to parse the page content.
  */
 export async function scrapeFixtures(date: string): Promise<ScrapedFixture[]> {
-  // Try prosoccer.gr first, then fallbacks
-  let fixtures = await scrapeFromProsoccer(date);
-  if (fixtures.length > 0) return fixtures;
-
-  logger.warn('prosoccer.gr returned no data, no fallback available');
-  return [];
-}
-
-async function scrapeFromProsoccer(date: string): Promise<ScrapedFixture[]> {
   try {
-    // prosoccer.gr shows today's predictions at /en/football/predictions
-    // For specific dates: /en/football/predictions/YYYY-MM-DD
-    const url = `https://www.prosoccer.gr/en/football/predictions/${date}`;
+    // Fetch the prosoccer.gr page
+    const url = 'https://www.prosoccer.gr/en/football/predictions';
     const { data: html } = await axios.get(url, {
       timeout: 20000,
       headers: {
@@ -72,101 +76,90 @@ async function scrapeFromProsoccer(date: string): Promise<ScrapedFixture[]> {
       },
     });
 
-    const fixtures: ScrapedFixture[] = [];
-
-    // Parse the HTML table rows using regex (no DOM parser needed)
-    // prosoccer.gr uses a table with rows containing: league, time, teams, probs, tip, odds
-    // Match pattern: league code | time | TEAM1 - TEAM2 | prob1 | probX | prob2 | tip | odds1 | oddsX | odds2
-
-    // Extract table rows - look for match data patterns
-    const rowPattern = /class="[^"]*pred[^"]*"[^>]*>[\s\S]*?<\/tr>/gi;
-    const rows = html.match(rowPattern) || [];
-
-    // Also try a simpler approach: extract all text content between tags
-    // The page content has patterns like: EN1|19:45|BOLTON - DONCASTER|77%|19%|4%|...
-    const textContent = html
+    // Strip scripts/styles, keep text content
+    const text = html
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, '|')
-      .replace(/\|\s*\|/g, '|')
-      .replace(/\|{2,}/g, '|');
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
 
-    // Find match patterns in the text: LeagueCode | Time | TEAM - TEAM | prob% | prob% | prob%
-    const lines = textContent.split('\n').join('|').split('|').map((s: string) => s.trim()).filter(Boolean);
+    // Use Claude to extract structured match data from the page text
+    const { data: response } = await axios.post(
+      'https://api.anthropic.com/v1/messages',
+      {
+        model: 'claude-sonnet-4-6',
+        max_tokens: 8192,
+        messages: [{
+          role: 'user',
+          content: `Extract ALL football match predictions from this prosoccer.gr page text. The data contains rows with: LEAGUE_CODE | TIME | TEAM1 - TEAM2 | probability1% | probabilityX% | probability2% | tip | odds1 | oddsX | odds2
 
-    let i = 0;
-    while (i < lines.length - 8) {
-      // Look for a league code pattern (2-3 uppercase letters + digit)
-      const leagueMatch = lines[i].match(/^([A-Z]{2,3}\d?)$/);
-      if (leagueMatch) {
-        const leagueCode = leagueMatch[1];
-        const leagueInfo = LEAGUE_CODE_MAP[leagueCode];
+Page text:
+${text.substring(0, 30000)}
 
-        // Next should be time (HH:MM format)
-        const timeMatch = lines[i + 1]?.match(/^(\d{1,2}:\d{2})$/);
-        if (timeMatch) {
-          const kickoff = timeMatch[1];
+Return ONLY a JSON array with every match:
+[{"league":"EN1","time":"19:45","home":"BOLTON","away":"DONCASTER","homeProb":77,"drawProb":19,"awayProb":4,"tip":"1","homeOdds":1.60,"drawOdds":3.95,"awayOdds":4.50}]
 
-          // Next should be teams (TEAM - TEAM or TEAM vs TEAM)
-          const teamsStr = lines[i + 2];
-          const teamsParts = teamsStr?.split(/\s*[-–vs]+\s*/);
-
-          if (teamsParts && teamsParts.length >= 2) {
-            const homeTeam = teamsParts[0].trim();
-            const awayTeam = teamsParts[teamsParts.length - 1].trim();
-
-            if (homeTeam && awayTeam && homeTeam.length > 1 && awayTeam.length > 1) {
-              // Look ahead for percentages and odds
-              let homeProb = 0, drawProb = 0, awayProb = 0;
-              let homeOdds = 0, drawOdds = 0, awayOdds = 0;
-              let tip = '';
-
-              // Scan next ~10 tokens for probabilities (XX%) and odds (X.XX)
-              const lookahead = lines.slice(i + 3, i + 15).join(' ');
-
-              const probMatches = lookahead.match(/(\d{1,3})%/g);
-              if (probMatches && probMatches.length >= 3) {
-                homeProb = parseInt(probMatches[0]) / 100;
-                drawProb = parseInt(probMatches[1]) / 100;
-                awayProb = parseInt(probMatches[2]) / 100;
-              }
-
-              const oddsMatches = lookahead.match(/\b(\d+\.\d{2})\b/g);
-              if (oddsMatches && oddsMatches.length >= 3) {
-                homeOdds = parseFloat(oddsMatches[0]);
-                drawOdds = parseFloat(oddsMatches[1]);
-                awayOdds = parseFloat(oddsMatches[2]);
-              }
-
-              // Determine tip from probabilities
-              if (homeProb >= drawProb && homeProb >= awayProb) tip = '1';
-              else if (drawProb >= homeProb && drawProb >= awayProb) tip = 'X';
-              else tip = '2';
-
-              fixtures.push({
-                homeTeam,
-                awayTeam,
-                league: leagueInfo?.name || leagueCode,
-                country: leagueInfo?.country || 'Unknown',
-                kickoff,
-                status: 'scheduled',
-                homeWinProb: homeProb || undefined,
-                drawProb: drawProb || undefined,
-                awayWinProb: awayProb || undefined,
-                tip: homeProb ? tip : undefined,
-                homeOdds: homeOdds || undefined,
-                drawOdds: drawOdds || undefined,
-                awayOdds: awayOdds || undefined,
-              });
-
-              i += 3;
-              continue;
-            }
-          }
-        }
+Rules:
+- Include EVERY match from the page, do not skip any
+- tip: "1" for home, "X" for draw, "2" for away. If tip shows "a1" or just a number, map it: a1->1, aX->X, a2->2, a1X->1, a21->2, a12->1, a2X->2, aX1->X
+- Probabilities are integers (percentages)
+- Odds are decimal numbers`
+        }],
+      },
+      {
+        headers: {
+          'x-api-key': env.CLAUDE_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        },
+        timeout: 90000,
       }
-      i++;
+    );
+
+    const aiText = response.content?.[0]?.text;
+    if (!aiText) {
+      logger.error('Claude returned empty response for prosoccer parsing');
+      return [];
     }
+
+    const jsonMatch = aiText.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      logger.error('No JSON array in Claude prosoccer response');
+      return [];
+    }
+
+    const rawMatches: any[] = JSON.parse(jsonMatch[0]);
+    const fixtures: ScrapedFixture[] = rawMatches.map(m => {
+      const leagueInfo = LEAGUE_CODE_MAP[m.league] || { name: m.league, country: 'Unknown' };
+
+      // Normalize tip
+      let tip = String(m.tip || '').replace(/^a/, '');
+      if (tip.length > 1) tip = tip[0]; // Take first char for compound tips like "12", "1X"
+      if (!['1', 'X', '2'].includes(tip)) {
+        // Determine from probabilities
+        const h = m.homeProb || 0, d = m.drawProb || 0, a = m.awayProb || 0;
+        tip = h >= d && h >= a ? '1' : d >= a ? 'X' : '2';
+      }
+
+      return {
+        homeTeam: m.home,
+        awayTeam: m.away,
+        league: leagueInfo.name,
+        country: leagueInfo.country,
+        kickoff: m.time || '15:00',
+        status: 'scheduled' as const,
+        homeWinProb: (m.homeProb || 0) / 100,
+        drawProb: (m.drawProb || 0) / 100,
+        awayWinProb: (m.awayProb || 0) / 100,
+        tip,
+        homeOdds: m.homeOdds || undefined,
+        drawOdds: m.drawOdds || undefined,
+        awayOdds: m.awayOdds || undefined,
+      };
+    });
 
     // Deduplicate
     const seen = new Set<string>();
@@ -177,7 +170,7 @@ async function scrapeFromProsoccer(date: string): Promise<ScrapedFixture[]> {
       return true;
     });
 
-    logger.info(`prosoccer.gr: scraped ${unique.length} fixtures for ${date}`);
+    logger.info(`prosoccer.gr: ${unique.length} fixtures scraped`);
     return unique;
   } catch (error: any) {
     logger.error(`prosoccer.gr scrape failed: ${error.message}`);

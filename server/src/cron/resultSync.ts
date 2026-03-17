@@ -51,9 +51,17 @@ export async function syncResults() {
         if (!res.rows[0]) continue;
         const { home, away } = res.rows[0];
 
-        const result = results.find(lr =>
+        // Try exact both-side match first, then home-only match as fallback
+        let result = results.find(lr =>
           teamsMatch(home, lr.homeTeam) && teamsMatch(away, lr.awayTeam)
         );
+        // Fallback: match home team only (covers cases where prosoccer uses different away team name)
+        if (!result) {
+          const homeMatches = results.filter(lr => teamsMatch(home, lr.homeTeam));
+          if (homeMatches.length === 1) {
+            result = homeMatches[0]; // Only use if unambiguous (single match)
+          }
+        }
 
         if (result) {
           await query(

@@ -9,7 +9,10 @@ import { useMatches, usePickOfDay, usePerformance } from './hooks/useMatches';
 export default function App() {
   const [date, setDate] = useState(dayjs().format('YYYY-MM-DD'));
   const { data: matchData, isLoading: matchesLoading } = useMatches(date);
-  const { data: pickData, isLoading: pickLoading } = usePickOfDay(date);
+  // Fetch POTD only after matches have loaded (matches endpoint auto-ingests missing dates)
+  const { data: pickData, isLoading: pickLoading } = usePickOfDay(
+    matchData?.matches?.length !== undefined ? date : ''
+  );
   const { data: perfData } = usePerformance(30);
 
   return (

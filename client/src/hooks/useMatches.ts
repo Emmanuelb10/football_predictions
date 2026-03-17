@@ -13,6 +13,7 @@ export function usePickOfDay(date: string) {
   return useQuery({
     queryKey: ['pick-of-day', date],
     queryFn: () => fetchPickOfDay(date),
+    enabled: !!date,
     refetchInterval: 60000,
   });
 }

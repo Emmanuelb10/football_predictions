@@ -1,6 +1,11 @@
 import { Router, Request, Response } from 'express';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
 import * as performanceTracker from '../services/performanceTracker';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 const router = Router();
 
@@ -20,7 +25,7 @@ router.get('/', async (req: Request, res: Response) => {
 
 router.get('/daily', async (req: Request, res: Response) => {
   try {
-    const date = (req.query.date as string) || dayjs().format('YYYY-MM-DD');
+    const date = (req.query.date as string) || dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
     const pl = await performanceTracker.getDailyPL(date);
     res.json({ date, ...pl });
   } catch (error: any) {

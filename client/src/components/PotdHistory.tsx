@@ -13,7 +13,7 @@ interface PotdHistoryProps {
       odds: number;
       ev: number;
       score: string | null;
-      outcome: 'pending' | 'won' | 'lost' | 'none';
+      outcome: 'pending' | 'won' | 'lost';
       reasoning: string;
       profit: number;
     }>;
@@ -80,24 +80,9 @@ export default function PotdHistory({ data }: PotdHistoryProps) {
           </thead>
           <tbody>
             {history.map((h, i) => {
-              const isNone = h.outcome === 'none';
               const outcomeColor = h.outcome === 'won' ? 'var(--accent-green)' : h.outcome === 'lost' ? 'var(--accent-red)' : 'var(--text-secondary)';
               const dateStr = new Date(h.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
               const dayStr = new Date(h.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' });
-
-              if (isNone) {
-                return (
-                  <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td className="py-2 px-2">
-                      <div className="text-xs font-medium">{dateStr}</div>
-                      <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{dayStr}</div>
-                    </td>
-                    <td colSpan={10} className="py-2 px-2 text-xs text-center" style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>
-                      No qualifying pick
-                    </td>
-                  </tr>
-                );
-              }
 
               return (
                 <tr

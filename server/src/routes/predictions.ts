@@ -1,13 +1,18 @@
 import { Router, Request, Response } from 'express';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
 import * as PredictionModel from '../models/Prediction';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 import { query } from '../config/database';
 
 const router = Router();
 
 router.get('/pick-of-day', async (req: Request, res: Response) => {
   try {
-    const date = (req.query.date as string) || dayjs().format('YYYY-MM-DD');
+    const date = (req.query.date as string) || dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
     const pick = await PredictionModel.findPickOfDay(date);
     res.json({ date, pick: pick || null });
   } catch (error: any) {
@@ -18,7 +23,7 @@ router.get('/pick-of-day', async (req: Request, res: Response) => {
 // Accumulator builder: suggest 2-fold, 3-fold combos from value bets
 router.get('/accumulators', async (req: Request, res: Response) => {
   try {
-    const date = (req.query.date as string) || dayjs().format('YYYY-MM-DD');
+    const date = (req.query.date as string) || dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
 
     const result = await query(
       `SELECT p.match_id, p.tip, p.confidence, p.expected_value,
@@ -31,7 +36,7 @@ router.get('/accumulators', async (req: Request, res: Response) => {
        JOIN teams at2 ON m.away_team_id = at2.id
        JOIN tournaments t ON m.tournament_id = t.id
        LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC LIMIT 1) oh ON true
-       WHERE p.is_value_bet = true AND DATE(m.kickoff AT TIME ZONE 'UTC') = $1
+       WHERE p.is_value_bet = true AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') = $1
        ORDER BY p.confidence DESC`,
       [date]
     );
@@ -120,8 +125,8 @@ router.get('/potd-history', async (req: Request, res: Response) => {
   try {
     const days = parseInt(req.query.days as string) || 30;
     const result = await query(
-      `SELECT DATE(m.kickoff AT TIME ZONE 'UTC') as date,
-              TO_CHAR(m.kickoff AT TIME ZONE 'UTC', 'HH24:MI') as kickoff_time,
+      `SELECT DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') as date,
+              TO_CHAR(m.kickoff AT TIME ZONE 'Africa/Nairobi', 'HH24:MI') as kickoff_time,
               ht.name as home_team, at2.name as away_team,
               t.name as tournament,
               p.tip, p.confidence, p.expected_value,
@@ -167,21 +172,10 @@ router.get('/potd-history', async (req: Request, res: Response) => {
       });
     }
 
-    // Fill in every day for the full month
-    const history: any[] = [];
-    const today = dayjs();
-    for (let i = 0; i < days; i++) {
-      const d = today.subtract(i, 'day').format('YYYY-MM-DD');
-      if (picksByDate.has(d)) {
-        history.push(picksByDate.get(d));
-      } else {
-        history.push({
-          date: d, kickoffTime: '', homeTeam: null, awayTeam: null, tournament: null,
-          tip: null, confidence: 0, odds: 0, ev: 0,
-          score: null, outcome: 'none', reasoning: '', profit: 0,
-        });
-      }
-    }
+    // Only include days that have a POTD pick (no filler "none" rows)
+    const history = Array.from(picksByDate.values())
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, days);
 
     const withPicks = history.filter((h: any) => h.outcome !== 'none');
     const settled = withPicks.filter((h: any) => h.outcome === 'won' || h.outcome === 'lost');

@@ -1,6 +1,8 @@
 import axios from 'axios';
 import logger from '../config/logger';
 import { env } from '../config/env';
+import { scrapeZulubet } from './zulubetScraper';
+import { scrape1xbet } from './onexbetScraper';
 
 export interface ScrapedFixture {
   homeTeam: string;
@@ -212,6 +214,61 @@ Rules:
     logger.error(`prosoccer.gr scrape failed: ${error.message}`);
     return [];
   }
+}
+
+/**
+ * Check if two team names likely refer to the same team.
+ * Handles cases like "BOLTON" vs "BOLTON WANDERERS", "FC BARCELONA" vs "BARCELONA".
+ */
+function teamsMatchFuzzy(a: string, b: string): boolean {
+  const na = a.toUpperCase().replace(/^FC\s+|\s+FC$|^SC\s+|\s+SC$/g, '').trim();
+  const nb = b.toUpperCase().replace(/^FC\s+|\s+FC$|^SC\s+|\s+SC$/g, '').trim();
+  if (na === nb) return true;
+  if (na.length >= 4 && nb.length >= 4) {
+    if (na.includes(nb) || nb.includes(na)) return true;
+  }
+  // Compare first significant word (3+ chars)
+  const wa = na.split(/\s+/).find(w => w.length >= 3);
+  const wb = nb.split(/\s+/).find(w => w.length >= 3);
+  return !!(wa && wb && wa === wb);
+}
+
+/**
+ * Scrape from all sources (prosoccer.gr + zulubet.com) and merge.
+ * prosoccer is primary, zulubet adds extra matches not found in prosoccer.
+ */
+export async function scrapeAllSources(date: string): Promise<ScrapedFixture[]> {
+  const [prosoccerResult, zulubetResult, onexbetResult] = await Promise.allSettled([
+    scrapeFixtures(date),
+    scrapeZulubet(date),
+    scrape1xbet(date),
+  ]);
+
+  const prosoccer = prosoccerResult.status === 'fulfilled' ? prosoccerResult.value : [];
+  const zulubet = zulubetResult.status === 'fulfilled' ? zulubetResult.value : [];
+  const onexbet = onexbetResult.status === 'fulfilled' ? onexbetResult.value : [];
+
+  // Start with prosoccer (primary), add unique matches from other sources
+  const merged = [...prosoccer];
+
+  let zulubetAdded = 0;
+  for (const zf of zulubet) {
+    if (!merged.some(pf => teamsMatchFuzzy(pf.homeTeam, zf.homeTeam))) {
+      merged.push(zf);
+      zulubetAdded++;
+    }
+  }
+
+  let onexbetAdded = 0;
+  for (const xf of onexbet) {
+    if (!merged.some(pf => teamsMatchFuzzy(pf.homeTeam, xf.homeTeam))) {
+      merged.push(xf);
+      onexbetAdded++;
+    }
+  }
+
+  logger.info(`All sources: ${merged.length} total (prosoccer: ${prosoccer.length}, zulubet+: ${zulubetAdded}, 1xbet+: ${onexbetAdded})`);
+  return merged;
 }
 
 export async function scrapeResults(date: string): Promise<ScrapedFixture[]> {

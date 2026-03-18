@@ -40,6 +40,18 @@ router.post('/trigger/odds', async (_req: Request, res: Response) => {
   }
 });
 
+// Manual trigger for POTD re-selection
+router.post('/trigger/potd', async (req: Request, res: Response) => {
+  try {
+    const { selectPickOfDay } = await import('../services/predictionEngine');
+    const date = req.query.date as string || new Date().toISOString().slice(0, 10);
+    const result = await selectPickOfDay(date);
+    res.json({ status: 'ok', date, pick: result?.id || null });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Manual trigger for result sync
 router.post('/trigger/results', async (_req: Request, res: Response) => {
   try {

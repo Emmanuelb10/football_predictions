@@ -1,11 +1,16 @@
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
 import logger from '../config/logger';
 import { query } from '../config/database';
 import { scrapeOdds } from '../services/oddsScraper';
 import * as OddsModel from '../models/OddsHistory';
 
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
 export async function syncOdds() {
-  const today = dayjs().format('YYYY-MM-DD');
+  const today = dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
   logger.info(`Starting odds sync for ${today}`);
 
   try {
@@ -24,7 +29,7 @@ export async function syncOdds() {
 async function recomputeValueBets(date: string) {
   const res = await query(
     `SELECT p.* FROM predictions p JOIN matches m ON p.match_id = m.id
-     WHERE DATE(m.kickoff AT TIME ZONE 'UTC') = $1`,
+     WHERE DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') = $1`,
     [date]
   );
 

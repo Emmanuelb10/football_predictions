@@ -1,5 +1,10 @@
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
 import logger from '../config/logger';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 import * as fixtureScraper from '../services/fixtureScraper';
 import * as claudeService from '../services/claudeService';
 import * as predictionEngine from '../services/predictionEngine';
@@ -51,13 +56,13 @@ function hashString(s: string): number {
 }
 
 export async function ingestFixtures(targetDate?: string) {
-  const today = targetDate || dayjs().format('YYYY-MM-DD');
+  const today = targetDate || dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
   logger.info(`Starting fixture ingestion for ${today}`);
 
   try {
-    // Step 1: Scrape fixtures from prosoccer.gr (includes predictions + odds)
-    logger.info('Scraping prosoccer.gr for fixtures...');
-    let fixtures = await fixtureScraper.scrapeFixtures(today);
+    // Step 1: Scrape fixtures from all sources (prosoccer.gr + zulubet.com)
+    logger.info('Scraping all sources for fixtures...');
+    let fixtures = await fixtureScraper.scrapeAllSources(today);
 
     if (fixtures.length === 0) {
       logger.info(`No fixtures scraped for ${today}`);

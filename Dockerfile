@@ -2,6 +2,7 @@
 FROM node:22-slim AS server-build
 WORKDIR /app/server
 COPY server/package*.json ./
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 RUN npm ci
 COPY server/ ./
 RUN npx tsc
@@ -18,9 +19,10 @@ RUN npx vite build
 FROM node:22-slim
 WORKDIR /app
 
-# Server deps (include dev for ts-node migrations)
+# Server deps (puppeteer Chrome download skipped — 1xBet scraping is optional,
+# prosoccer.gr odds are primary. Set PUPPETEER_EXECUTABLE_PATH to enable.)
 COPY server/package*.json ./server/
-RUN cd server && npm ci
+RUN PUPPETEER_SKIP_DOWNLOAD=true npm ci --prefix server
 
 # Copy built server + client
 COPY --from=server-build /app/server/dist ./server/dist

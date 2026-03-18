@@ -8,7 +8,11 @@ import { startCronJobs } from './cron';
 
 const app = express();
 
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginOpenerPolicy: false,
+  originAgentCluster: false,
+}));
 app.use(cors());
 app.use(express.json());
 

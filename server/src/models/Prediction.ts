@@ -54,7 +54,7 @@ export async function findPickOfDay(date: string) {
      JOIN teams at2 ON m.away_team_id = at2.id
      JOIN tournaments t ON m.tournament_id = t.id
      WHERE p.is_pick_of_day = true
-       AND DATE(m.kickoff AT TIME ZONE 'UTC') = $1
+       AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') = $1
      LIMIT 1`,
     [date]
   );
@@ -64,7 +64,7 @@ export async function findPickOfDay(date: string) {
 export async function clearPickOfDay(date: string) {
   return query(
     `UPDATE predictions SET is_pick_of_day = false
-     WHERE match_id IN (SELECT id FROM matches WHERE DATE(kickoff AT TIME ZONE 'UTC') = $1)`,
+     WHERE match_id IN (SELECT id FROM matches WHERE DATE(kickoff AT TIME ZONE 'Africa/Nairobi') = $1)`,
     [date]
   );
 }

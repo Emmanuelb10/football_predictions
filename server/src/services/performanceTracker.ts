@@ -7,7 +7,7 @@ export async function getPerformanceSummary(days: number = 30) {
 
 export async function getDailyBreakdown(days: number = 30) {
   const res = await query(
-    `SELECT DATE(m.kickoff AT TIME ZONE 'UTC') as date,
+    `SELECT DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') as date,
             COUNT(*) as total_picks,
             COUNT(*) FILTER (WHERE
               (p.tip = '1' AND m.home_score > m.away_score) OR
@@ -18,7 +18,7 @@ export async function getDailyBreakdown(days: number = 30) {
      FROM predictions p JOIN matches m ON p.match_id = m.id
      WHERE m.status = 'finished' AND p.is_value_bet = true
        AND m.kickoff >= NOW() - ($1 || ' days')::interval
-     GROUP BY DATE(m.kickoff AT TIME ZONE 'UTC')
+     GROUP BY DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi')
      ORDER BY date DESC`,
     [days]
   );
@@ -40,7 +40,7 @@ export async function getDailyPL(date: string) {
      FROM predictions p
      JOIN matches m ON p.match_id = m.id
      LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC LIMIT 1) oh ON true
-     WHERE p.is_value_bet = true AND DATE(m.kickoff AT TIME ZONE 'UTC') = $1`,
+     WHERE p.is_value_bet = true AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') = $1`,
     [date]
   );
 

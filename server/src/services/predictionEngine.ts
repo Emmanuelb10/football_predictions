@@ -1,10 +1,11 @@
+import axios from 'axios';
 import { query } from '../config/database';
 import logger from '../config/logger';
+import { env } from '../config/env';
 import * as PredictionModel from '../models/Prediction';
 import * as OddsModel from '../models/OddsHistory';
 import { calculateEV, isValueBet } from '../utils/expectedValue';
 import { poissonMatchProbs, poissonAgreementScore } from '../utils/poisson';
-import { computePotdScore } from '../utils/stats';
 
 interface MatchInfo {
   homeTeam: string;
@@ -104,10 +105,74 @@ async function getLeagueHitRatio(matchId: number): Promise<number> {
   }
 }
 
+async function tryClaudePOTD(prompt: string): Promise<{ pick: number; reasoning: string } | null> {
+  if (!env.CLAUDE_API_KEY) return null;
+  try {
+    const { data: response } = await axios.post(
+      'https://api.anthropic.com/v1/messages',
+      {
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1024,
+        messages: [{ role: 'user', content: prompt }],
+      },
+      {
+        headers: {
+          'x-api-key': env.CLAUDE_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        },
+        timeout: 30000,
+      }
+    );
+    const aiText = response.content?.[0]?.text || '';
+    const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      logger.info(`Claude POTD: ${parsed.reasoning}`);
+      return parsed;
+    }
+  } catch (err: any) {
+    logger.warn(`Claude POTD failed: ${err.response?.data?.error?.message || err.message}`);
+  }
+  return null;
+}
+
+async function tryGeminiPOTD(prompt: string): Promise<{ pick: number; reasoning: string } | null> {
+  if (!env.GEMINI_API_KEY) return null;
+  try {
+    const { data: response } = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_API_KEY}`,
+      {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 8192, thinkingConfig: { thinkingBudget: 2048 } },
+      },
+      { timeout: 30000 }
+    );
+    const aiText = response.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      logger.info(`Gemini POTD: ${parsed.reasoning}`);
+      return parsed;
+    }
+  } catch (err: any) {
+    logger.warn(`Gemini POTD failed: ${err.response?.data?.error?.message || err.message}`);
+  }
+  return null;
+}
+
 export async function selectPickOfDay(date: string) {
   const res = await query(
-    `SELECT p.* FROM predictions p JOIN matches m ON p.match_id = m.id
-     WHERE p.is_value_bet = true AND DATE(m.kickoff AT TIME ZONE 'UTC') = $1`,
+    `SELECT p.*, ht.name as home_team, at2.name as away_team, t.name as league,
+            TO_CHAR(m.kickoff AT TIME ZONE 'Africa/Nairobi', 'HH24:MI') as kickoff_time,
+            oh.home_odds, oh.draw_odds, oh.away_odds
+     FROM predictions p
+     JOIN matches m ON p.match_id = m.id
+     JOIN teams ht ON m.home_team_id = ht.id
+     JOIN teams at2 ON m.away_team_id = at2.id
+     JOIN tournaments t ON m.tournament_id = t.id
+     LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC LIMIT 1) oh ON true
+     WHERE p.is_value_bet = true AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') = $1`,
     [date]
   );
   const valueBets = res.rows;
@@ -119,78 +184,70 @@ export async function selectPickOfDay(date: string) {
 
   await PredictionModel.clearPickOfDay(date);
 
-  if (valueBets.length === 1) {
-    const vb = valueBets[0];
-    const det = await query(
-      `SELECT ht.name as home, at2.name as away, t.name as league
-       FROM matches m JOIN teams ht ON m.home_team_id=ht.id JOIN teams at2 ON m.away_team_id=at2.id
-       JOIN tournaments t ON m.tournament_id=t.id WHERE m.id=$1`, [vb.match_id]
-    );
-    const info = det.rows[0];
-    const tipL = vb.tip === '1' ? 'Home Win' : vb.tip === '2' ? 'Away Win' : 'Draw';
-    const reason = info
-      ? `${info.home} vs ${info.away} (${info.league}): ${tipL} at ${(Number(vb.confidence)*100).toFixed(0)}% confidence. ` +
-        `EV: ${Number(vb.expected_value) > 0 ? '+' : ''}${(Number(vb.expected_value)*100).toFixed(1)}%. ` +
-        `Only qualifying value bet for the day.`
-      : '';
-    await query('UPDATE predictions SET is_pick_of_day=true, potd_rank_score=1, reasoning=$1 WHERE id=$2', [reason, vb.id]);
-    return vb;
+  // Build match summaries for Claude
+  const matchSummaries = valueBets.map((vb, i) => {
+    const tipLabel = vb.tip === '1' ? 'Home Win' : vb.tip === '2' ? 'Away Win' : 'Draw';
+    const tipOdds = vb.tip === '1' ? Number(vb.home_odds) : vb.tip === 'X' ? Number(vb.draw_odds) : Number(vb.away_odds);
+    return `${i + 1}. ${vb.home_team} vs ${vb.away_team} (${vb.league}, ${vb.kickoff_time} EAT)
+   Tip: ${tipLabel} | Probability: ${(Number(vb.confidence) * 100).toFixed(0)}% | Odds: ${tipOdds?.toFixed(2) || 'N/A'} | EV: ${Number(vb.expected_value) > 0 ? '+' : ''}${(Number(vb.expected_value) * 100).toFixed(1)}%
+   Poisson: ${Number(vb.poisson_score).toFixed(2)} | League hit ratio: ${(Number(vb.league_hit_ratio) * 100).toFixed(0)}%`;
+  }).join('\n');
+
+  const aiPrompt = `You are an expert football betting analyst. Select the SINGLE BEST value bet as Pick of the Day from these candidates for ${date}.
+
+${matchSummaries}
+
+Evaluate each match considering:
+- Expected Value (higher EV = more profitable edge)
+- Win probability vs odds (is the bookmaker underestimating this team?)
+- League reliability (higher hit ratio = more predictable league)
+- Poisson model agreement (higher = stats back the prediction)
+- Team quality, home advantage, and current form context
+- Risk vs reward balance
+
+Respond with ONLY valid JSON (no markdown):
+{"pick": <number 1-${valueBets.length}>, "reasoning": "<2-3 sentence analysis explaining why this is the best pick, referencing the specific teams and stats>"}`;
+
+  let winnerId = valueBets[0].id;
+  let reasoning = '';
+
+  // Try Gemini first (free), then Claude, then fall back to highest EV
+  const aiResult = await tryGeminiPOTD(aiPrompt) || await tryClaudePOTD(aiPrompt);
+
+  if (aiResult) {
+    const pickIdx = (aiResult.pick || 1) - 1;
+    if (pickIdx >= 0 && pickIdx < valueBets.length) {
+      winnerId = valueBets[pickIdx].id;
+      reasoning = aiResult.reasoning || '';
+    }
   }
 
-  const candidates = await Promise.all(
-    valueBets.map(async (vb) => {
-      const lm = await OddsModel.getLineMovement(vb.match_id);
-      const tipMovement = typeof lm === 'number' ? 0 :
-        vb.tip === '1' ? lm.home : vb.tip === 'X' ? lm.draw : lm.away;
-      return {
-        ...vb,
-        ev: Number(vb.expected_value),
-        hitRatio: Number(vb.league_hit_ratio) || 0.5,
-        consistency: vb.std_deviation ? 1 / Math.max(Number(vb.std_deviation), 0.01) : 1,
-        poissonScore: Number(vb.poisson_score) || 0.5,
-        lineMovement: tipMovement || 0,
-      };
-    })
-  );
+  if (!reasoning) {
+    // Final fallback: highest EV
+    valueBets.sort((a: any, b: any) => Number(b.expected_value) - Number(a.expected_value));
+    winnerId = valueBets[0].id;
+    const fb = valueBets[0];
+    const tipL = fb.tip === '1' ? 'Home Win' : fb.tip === '2' ? 'Away Win' : 'Draw';
+    reasoning = `${tipL} at ${(Number(fb.confidence) * 100).toFixed(0)}% confidence. EV: ${Number(fb.expected_value) > 0 ? '+' : ''}${(Number(fb.expected_value) * 100).toFixed(1)}%. Top EV pick of ${valueBets.length} value bets.`;
+    logger.warn('POTD: Both AI providers failed, using highest EV fallback');
+  }
 
-  const scored = candidates.map((c) => ({
-    ...c,
-    potdScore: computePotdScore({
-      ev: c.ev, hitRatio: c.hitRatio, consistency: c.consistency,
-      poissonScore: c.poissonScore, lineMovement: c.lineMovement,
-      allCandidates: candidates,
-    }),
+  // Score all candidates by EV for ranking
+  const scored = valueBets.map((vb: any) => ({
+    ...vb,
+    potdScore: Number(vb.expected_value),
   }));
-
-  scored.sort((a, b) => b.potdScore - a.potdScore);
-  const winner = scored[0];
-
-  // Get winner team names for reasoning
-  const detailRes = await query(
-    `SELECT ht.name as home, at2.name as away, t.name as league
-     FROM matches m JOIN teams ht ON m.home_team_id=ht.id JOIN teams at2 ON m.away_team_id=at2.id
-     JOIN tournaments t ON m.tournament_id=t.id WHERE m.id=$1`,
-    [winner.match_id]
-  );
-  const det = detailRes.rows[0];
-  const tipLabel = winner.tip === '1' ? 'Home Win' : winner.tip === '2' ? 'Away Win' : 'Draw';
-  let potdReason = '';
-  if (det) {
-    potdReason = `${tipLabel} at ${(Number(winner.confidence) * 100).toFixed(0)}% confidence. ` +
-      `EV: ${winner.ev > 0 ? '+' : ''}${(winner.ev * 100).toFixed(1)}%. ` +
-      `Ranked #1 of ${scored.length} value bets (score: ${winner.potdScore.toFixed(3)}) ` +
-      `based on expected value, league reliability, team consistency, and Poisson model agreement.`;
-  }
-  logger.info(`POTD reasoning: ${potdReason}`);
+  scored.sort((a: any, b: any) => b.potdScore - a.potdScore);
 
   for (const s of scored) {
-    const isPotd = s.id === winner.id;
+    const isPotd = s.id === winnerId;
     await query(
-      'UPDATE predictions SET potd_rank_score=$1, is_pick_of_day=$2, line_movement=$3, reasoning=$4 WHERE id=$5',
-      [s.potdScore, isPotd, s.lineMovement, isPotd ? potdReason : '', s.id]
+      'UPDATE predictions SET potd_rank_score=$1, is_pick_of_day=$2, reasoning=$3 WHERE id=$4',
+      [s.potdScore, isPotd, isPotd ? reasoning : '', s.id]
     );
   }
 
-  logger.info(`Pick of the Day for ${date}: id=${winner.id}, score=${winner.potdScore.toFixed(4)}`);
+  const winner = valueBets.find((vb: any) => vb.id === winnerId);
+  logger.info(`Pick of the Day for ${date}: id=${winnerId}`);
   return winner;
 }

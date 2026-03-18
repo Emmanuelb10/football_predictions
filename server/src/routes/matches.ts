@@ -1,9 +1,14 @@
 import { Router, Request, Response } from 'express';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
 import * as MatchModel from '../models/Match';
 import * as OddsModel from '../models/OddsHistory';
 import { query } from '../config/database';
 import logger from '../config/logger';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 const router = Router();
 
@@ -12,14 +17,14 @@ const ingestingDates = new Set<string>();
 
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const date = (req.query.date as string) || dayjs().format('YYYY-MM-DD');
+    const date = (req.query.date as string) || dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
     let matches = await MatchModel.findByDate(date);
 
     // Auto-ingest if no matches exist for this date (only once per date)
     if (matches.length === 0 && !ingestingDates.has(date)) {
       // Check if we already tried this date (avoid repeated scraping on empty days)
       const attempted = await query(
-        `SELECT COUNT(*) as c FROM matches WHERE DATE(kickoff AT TIME ZONE 'UTC') = $1`, [date]
+        `SELECT COUNT(*) as c FROM matches WHERE DATE(kickoff AT TIME ZONE 'Africa/Nairobi') = $1`, [date]
       );
       if (Number(attempted.rows[0].c) === 0) {
         ingestingDates.add(date);

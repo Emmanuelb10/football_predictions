@@ -25,7 +25,7 @@ export async function findByDate(date: string) {
      JOIN teams at2 ON m.away_team_id = at2.id
      JOIN tournaments t ON m.tournament_id = t.id
      LEFT JOIN predictions p ON m.id = p.match_id
-     WHERE DATE(m.kickoff AT TIME ZONE 'UTC') = $1
+     WHERE DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') = $1
      ORDER BY m.kickoff ASC`,
     [date]
   );

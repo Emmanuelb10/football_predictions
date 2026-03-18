@@ -3,13 +3,12 @@ import dayjs from 'dayjs';
 import DatePicker from './components/DatePicker';
 import PickOfDayCard from './components/PickOfDayCard';
 import MatchTable from './components/MatchTable';
-import PerformancePanel from './components/PerformancePanel';
 import DailyPLBanner from './components/DailyPLBanner';
 import AccumulatorCard from './components/AccumulatorCard';
 import PotdHistory from './components/PotdHistory';
 import Glossary from './components/Glossary';
 import { useToast } from './components/ToastContainer';
-import { useMatches, usePickOfDay, usePerformance, useDailyPL, useAccumulators, useSettled, usePotdHistory } from './hooks/useMatches';
+import { useMatches, usePickOfDay, useDailyPL, useAccumulators, useSettled, usePotdHistory } from './hooks/useMatches';
 
 export default function App() {
   const [date, setDate] = useState(dayjs().format('YYYY-MM-DD'));
@@ -17,7 +16,6 @@ export default function App() {
   const { data: pickData, isLoading: pickLoading } = usePickOfDay(
     matchData?.matches?.length !== undefined ? date : ''
   );
-  const { data: perfData } = usePerformance(30);
   const { data: dailyPL } = useDailyPL(date);
   const { data: accData } = useAccumulators(matchData?.matches?.length ? date : '');
   const { data: settledData } = useSettled();
@@ -72,19 +70,10 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-4">
-        {/* Daily P&L Banner */}
-        <DailyPLBanner data={dailyPL} />
-
-        {/* Performance Stats */}
-        {perfData && <PerformancePanel data={perfData} />}
-
         {/* Pick of the Day */}
         <PickOfDayCard data={pickData} loading={pickLoading} />
 
-        {/* Accumulator Suggestions */}
-        <AccumulatorCard data={accData} />
-
-        {/* Match Table with Tiers */}
+        {/* Predictions */}
         <MatchTable
           matches={matchData?.matches || []}
           loading={matchesLoading}
@@ -93,7 +82,9 @@ export default function App() {
           settledIds={settledIds}
         />
 
-        {/* POTD History Table */}
+        {/* Analysis */}
+        <DailyPLBanner data={dailyPL} />
+        <AccumulatorCard data={accData} />
         <PotdHistory data={potdHistoryData} />
 
         {/* Glossary */}

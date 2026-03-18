@@ -11,7 +11,7 @@ try {
   StealthPlugin = require('puppeteer-extra-plugin-stealth');
   puppeteer.use(StealthPlugin());
 } catch {
-  logger.warn('Puppeteer not available. 1xBet scraping disabled. Using API-FOOTBALL odds fallback.');
+  logger.warn('Puppeteer not available. 1xBet scraping disabled. Using prosoccer.gr odds only.');
 }
 
 /**
@@ -30,6 +30,7 @@ export async function scrapeOdds(date: string): Promise<number> {
   try {
     browser = await puppeteer.launch({
       headless: 'shell',
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
       timeout: 30000,
     });
@@ -90,7 +91,7 @@ export async function scrapeOdds(date: string): Promise<number> {
     const matchRes = await query(
       `SELECT m.id, ht.name as home_name, at2.name as away_name
        FROM matches m JOIN teams ht ON m.home_team_id = ht.id JOIN teams at2 ON m.away_team_id = at2.id
-       WHERE DATE(m.kickoff AT TIME ZONE 'UTC') = $1`,
+       WHERE DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') = $1`,
       [date]
     );
     const todayMatches = matchRes.rows;

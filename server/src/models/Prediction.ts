@@ -54,7 +54,7 @@ export async function findPickOfDay(date: string) {
      JOIN teams ht ON m.home_team_id = ht.id
      JOIN teams at2 ON m.away_team_id = at2.id
      JOIN tournaments t ON m.tournament_id = t.id
-     LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC LIMIT 1) oh ON true
+     LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC, id DESC LIMIT 1) oh ON true
      WHERE p.is_pick_of_day = true
        AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') = $1
      LIMIT 1`,

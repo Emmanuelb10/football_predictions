@@ -5,6 +5,7 @@ import logger from '../config/logger';
 import { query } from '../config/database';
 import { scrapeOdds } from '../services/oddsScraper';
 import * as OddsModel from '../models/OddsHistory';
+import { qualifiesByOdds, type Tip } from '../utils/qualification';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -43,7 +44,17 @@ async function recomputeValueBets(date: string) {
       Number(odds.away_odds);
 
     const ev = Number(pred.confidence) * tipOdds - 1;
-    const valueBet = Number(pred.confidence) >= 0.70 && tipOdds > 1.50;
+    // Use the shared qualifier so is_value_bet stays consistent with every
+    // other filter site. A previous inline check used a strict > 1.50 lower
+    // bound and no opposing-side check, which silently reintroduced stale
+    // non-conforming flags every 15 minutes after Phase 2 cleanup.
+    const valueBet = qualifiesByOdds(
+      pred.tip as Tip,
+      odds.home_odds != null ? Number(odds.home_odds) : null,
+      odds.draw_odds != null ? Number(odds.draw_odds) : null,
+      odds.away_odds != null ? Number(odds.away_odds) : null,
+      Number(pred.confidence),
+    );
 
     await query('UPDATE predictions SET expected_value = $1, is_value_bet = $2 WHERE id = $3', [ev, valueBet, pred.id]);
   }

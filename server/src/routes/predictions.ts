@@ -8,11 +8,9 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 import { query } from '../config/database';
 import { qualifiesByOdds, type Tip } from '../utils/qualification';
-import { isValidDateString } from '../utils/dateValidation';
+import { isValidDateString, LAUNCH_DATE } from '../utils/dateValidation';
 
 const router = Router();
-
-const LAUNCH_DATE = '2026-03-16';
 
 router.get('/pick-of-day', async (req: Request, res: Response) => {
   try {

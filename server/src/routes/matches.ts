@@ -14,9 +14,6 @@ dayjs.extend(timezone);
 
 const router = Router();
 
-// App launch date — no predictions shown before this date
-const LAUNCH_DATE = '2026-03-16';
-
 // Track dates currently being ingested to avoid duplicate work
 const ingestingDates = new Set<string>();
 

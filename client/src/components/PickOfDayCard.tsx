@@ -5,6 +5,44 @@ interface PickOfDayCardProps {
   loading: boolean;
 }
 
+function OddsCell({ label, value, isTipped }: { label: string; value: number | string | null | undefined; isTipped: boolean }) {
+  if (value == null) {
+    return (
+      <div className="text-center">
+        <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{label}</div>
+        <div className="font-mono text-sm" style={{ color: 'var(--text-secondary)' }}>-</div>
+      </div>
+    );
+  }
+  const n = Number(value);
+  const isValueRange = n >= 1.50 && n <= 1.99;
+  const bg = isTipped
+    ? 'rgba(245,158,11,0.18)'
+    : isValueRange
+    ? 'rgba(34,197,94,0.12)'
+    : 'transparent';
+  const color = isTipped
+    ? 'var(--accent-gold)'
+    : isValueRange
+    ? 'var(--accent-green)'
+    : 'var(--text-primary)';
+  return (
+    <div
+      className="text-center"
+      style={{
+        background: bg,
+        borderRadius: 4,
+        padding: '2px 4px',
+      }}
+    >
+      <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{label}</div>
+      <div className="font-mono text-sm font-bold" style={{ color }}>
+        {n.toFixed(2)}
+      </div>
+    </div>
+  );
+}
+
 export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
   if (loading) {
     return (
@@ -27,7 +65,7 @@ export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
             No qualifying value bets found for this date.
           </p>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Picks require 70%+ win probability and odds {'>'} 1.50
+            Picks require 70%+ win probability, tipped odds 1.50-1.99, and opposing side &gt;= 5.00.
           </p>
         </div>
       </div>
@@ -37,7 +75,6 @@ export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
   const tipLabel = pick.tip === '1' ? 'Home Win' : pick.tip === '2' ? 'Away Win' : 'Draw';
   const confidence = (Number(pick.confidence) * 100).toFixed(1);
   const ev = (Number(pick.expected_value) * 100).toFixed(1);
-  const odds = pick.tip === '1' ? pick.home_odds : pick.tip === 'X' ? pick.draw_odds : pick.away_odds;
   const kickoff = new Date(pick.kickoff).toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
@@ -47,7 +84,6 @@ export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
 
   return (
     <div className="card relative overflow-hidden" style={{ borderColor: 'var(--accent-gold)', borderWidth: '2px' }}>
-      {/* Gold accent bar */}
       <div
         className="absolute top-0 left-0 right-0 h-1"
         style={{ background: 'linear-gradient(90deg, var(--accent-gold), var(--accent-green))' }}
@@ -64,7 +100,6 @@ export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Teams */}
         <div className="flex flex-col items-center md:items-start">
           <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
             {pick.tournament} &middot; {kickoff} EAT
@@ -81,34 +116,36 @@ export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
           )}
         </div>
 
-        {/* Stats */}
-        <div className="flex gap-6 justify-center">
-          <div className="text-center">
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Win Prob<InfoTip text="The AI's estimated probability of the tipped outcome winning" /></p>
-            <p className="text-2xl font-bold" style={{ color: 'var(--accent-green)' }}>
-              {confidence}%
-            </p>
-          </div>
-          {odds && (
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="text-center">
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Odds<InfoTip text="Decimal odds for the tipped outcome from scraped bookmaker lines" /></p>
-              <p className="text-2xl font-bold" style={{ color: 'var(--accent-gold)' }}>
-                {Number(odds).toFixed(2)}
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Win Prob<InfoTip text="The AI's estimated probability of the tipped outcome winning" /></p>
+              <p className="text-2xl font-bold" style={{ color: 'var(--accent-green)' }}>
+                {confidence}%
               </p>
             </div>
-          )}
-          <div className="text-center">
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Expected Value<InfoTip text="EV = (probability x odds) - 1. Positive EV means profitable long-term" /></p>
-            <p
-              className="text-2xl font-bold"
-              style={{ color: Number(pick.expected_value) > 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}
-            >
-              {Number(pick.expected_value) > 0 ? '+' : ''}{ev}%
+            <div className="text-center">
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Expected Value<InfoTip text="EV = (probability x odds) - 1. Positive EV means profitable long-term" /></p>
+              <p
+                className="text-2xl font-bold"
+                style={{ color: Number(pick.expected_value) > 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}
+              >
+                {Number(pick.expected_value) > 0 ? '+' : ''}{ev}%
+              </p>
+            </div>
+          </div>
+          <div>
+            <p className="text-sm text-center" style={{ color: 'var(--text-secondary)' }}>
+              Odds (H / D / A)<InfoTip text="Decimal odds for Home / Draw / Away. Gold = tipped side. Green highlight = value range 1.50-1.99" />
             </p>
+            <div className="grid grid-cols-3 gap-2 mt-1">
+              <OddsCell label="H" value={pick.home_odds} isTipped={pick.tip === '1'} />
+              <OddsCell label="D" value={pick.draw_odds} isTipped={pick.tip === 'X'} />
+              <OddsCell label="A" value={pick.away_odds} isTipped={pick.tip === '2'} />
+            </div>
           </div>
         </div>
 
-        {/* Confidence meter */}
         <div className="flex flex-col justify-center">
           <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>Confidence</p>
           <div className="w-full rounded-full h-3" style={{ background: 'var(--bg-primary)' }}>
@@ -127,7 +164,6 @@ export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
         </div>
       </div>
 
-      {/* AI Reasoning */}
       {pick.reasoning && (
         <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
           <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>

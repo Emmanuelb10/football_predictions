@@ -2,7 +2,8 @@ import { query } from '../config/database';
 import logger from '../config/logger';
 import * as PredictionModel from '../models/Prediction';
 import * as OddsModel from '../models/OddsHistory';
-import { calculateEV, isValueBet } from '../utils/expectedValue';
+import { calculateEV } from '../utils/expectedValue';
+import { qualifiesByOdds, type Tip } from '../utils/qualification';
 import { poissonMatchProbs, poissonAgreementScore } from '../utils/poisson';
 
 interface MatchInfo {
@@ -54,7 +55,13 @@ async function storePrediction(matchId: number, pred: PredictionInput, matchApiI
       tip === 'X' ? Number(odds.draw_odds) :
       Number(odds.away_odds);
     ev = calculateEV(confidence, tipOdds);
-    valueBet = isValueBet(confidence, tipOdds);
+    valueBet = qualifiesByOdds(
+      tip as Tip,
+      odds.home_odds != null ? Number(odds.home_odds) : null,
+      odds.draw_odds != null ? Number(odds.draw_odds) : null,
+      odds.away_odds != null ? Number(odds.away_odds) : null,
+      confidence,
+    );
   }
 
   const poissonScore = computePoissonFromProbs(homeWinProb, drawProb, awayWinProb);
@@ -105,8 +112,7 @@ async function getLeagueHitRatio(matchId: number): Promise<number> {
 }
 
 export async function selectPickOfDay(date: string) {
-  // First try value bets; if none, fall back to top confidence picks
-  let res = await query(
+  const res = await query(
     `SELECT p.*, ht.name as home_team, at2.name as away_team, t.name as league,
             TO_CHAR(m.kickoff AT TIME ZONE 'Africa/Nairobi', 'HH24:MI') as kickoff_time,
             oh.home_odds, oh.draw_odds, oh.away_odds
@@ -115,35 +121,24 @@ export async function selectPickOfDay(date: string) {
      JOIN teams ht ON m.home_team_id = ht.id
      JOIN teams at2 ON m.away_team_id = at2.id
      JOIN tournaments t ON m.tournament_id = t.id
-     LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC LIMIT 1) oh ON true
+     LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC, id DESC LIMIT 1) oh ON true
      WHERE p.is_value_bet = true AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') = $1`,
     [date]
   );
-  let candidates = res.rows;
 
-  // Fallback: pick from top confidence instead
-  if (candidates.length === 0) {
-    logger.info(`No value bets for ${date}, selecting POTD from top confidence picks`);
-    res = await query(
-      `SELECT p.*, ht.name as home_team, at2.name as away_team, t.name as league,
-              TO_CHAR(m.kickoff AT TIME ZONE 'Africa/Nairobi', 'HH24:MI') as kickoff_time,
-              oh.home_odds, oh.draw_odds, oh.away_odds
-       FROM predictions p
-       JOIN matches m ON p.match_id = m.id
-       JOIN teams ht ON m.home_team_id = ht.id
-       JOIN teams at2 ON m.away_team_id = at2.id
-       JOIN tournaments t ON m.tournament_id = t.id
-       LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC LIMIT 1) oh ON true
-       WHERE p.confidence >= 0.55 AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') = $1
-       ORDER BY p.confidence DESC
-       LIMIT 10`,
-      [date]
-    );
-    candidates = res.rows;
-  }
+  // Post-filter in JS using the shared qualifier. This catches stale is_value_bet
+  // flags and any edge case the SQL filter alone cannot express.
+  const candidates = res.rows.filter((c: any) => qualifiesByOdds(
+    c.tip as Tip,
+    c.home_odds != null ? Number(c.home_odds) : null,
+    c.draw_odds != null ? Number(c.draw_odds) : null,
+    c.away_odds != null ? Number(c.away_odds) : null,
+    Number(c.confidence),
+  ));
 
   if (candidates.length === 0) {
     logger.info(`No qualifying picks for ${date}`);
+    await PredictionModel.clearPickOfDay(date);
     return null;
   }
 

@@ -7,6 +7,8 @@ import * as PredictionModel from '../models/Prediction';
 dayjs.extend(utc);
 dayjs.extend(timezone);
 import { query } from '../config/database';
+import { qualifiesByOdds, type Tip } from '../utils/qualification';
+import { isValidDateString } from '../utils/dateValidation';
 
 const router = Router();
 
@@ -15,7 +17,10 @@ const LAUNCH_DATE = '2026-03-16';
 router.get('/pick-of-day', async (req: Request, res: Response) => {
   try {
     const date = (req.query.date as string) || dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
-    if (date < LAUNCH_DATE) { res.json({ date, pick: null }); return; }
+    if (!isValidDateString(date)) {
+      res.status(400).json({ error: 'Invalid date', date });
+      return;
+    }
     const pick = await PredictionModel.findPickOfDay(date);
     res.json({ date, pick: pick || null });
   } catch (error: any) {
@@ -27,7 +32,10 @@ router.get('/pick-of-day', async (req: Request, res: Response) => {
 router.get('/accumulators', async (req: Request, res: Response) => {
   try {
     const date = (req.query.date as string) || dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
-    if (date < LAUNCH_DATE) { res.json({ date, accumulators: [] }); return; }
+    if (!isValidDateString(date)) {
+      res.status(400).json({ error: 'Invalid date', date });
+      return;
+    }
 
     const result = await query(
       `SELECT p.match_id, p.tip, p.confidence, p.expected_value,
@@ -39,13 +47,21 @@ router.get('/accumulators', async (req: Request, res: Response) => {
        JOIN teams ht ON m.home_team_id = ht.id
        JOIN teams at2 ON m.away_team_id = at2.id
        JOIN tournaments t ON m.tournament_id = t.id
-       LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC LIMIT 1) oh ON true
+       LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC, id DESC LIMIT 1) oh ON true
        WHERE p.is_value_bet = true AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') = $1
        ORDER BY p.confidence DESC`,
       [date]
     );
 
-    const picks = result.rows.map((r: any) => {
+    const conformingRows = result.rows.filter((r: any) => qualifiesByOdds(
+      r.tip as Tip,
+      r.home_odds != null ? Number(r.home_odds) : null,
+      r.draw_odds != null ? Number(r.draw_odds) : null,
+      r.away_odds != null ? Number(r.away_odds) : null,
+      Number(r.confidence),
+    ));
+
+    const picks = conformingRows.map((r: any) => {
       const odds = r.tip === '1' ? Number(r.home_odds) : r.tip === 'X' ? Number(r.draw_odds) : Number(r.away_odds);
       let pickResult: 'pending' | 'won' | 'lost' = 'pending';
       if (r.status === 'finished') {

@@ -5,20 +5,25 @@ interface DatePickerProps {
   onChange: (date: string) => void;
 }
 
+const LAUNCH_DATE = '2026-03-16';
+
 export default function DatePicker({ date, onChange }: DatePickerProps) {
-  const prev = () => onChange(dayjs(date).subtract(1, 'day').format('YYYY-MM-DD'));
+  const prevDate = dayjs(date).subtract(1, 'day').format('YYYY-MM-DD');
+  const prev = () => { if (prevDate >= LAUNCH_DATE) onChange(prevDate); };
   const next = () => onChange(dayjs(date).add(1, 'day').format('YYYY-MM-DD'));
   const today = () => onChange(dayjs().format('YYYY-MM-DD'));
 
   const isToday = date === dayjs().format('YYYY-MM-DD');
+  const isAtLaunch = date <= LAUNCH_DATE;
   const displayDate = dayjs(date).format('ddd, MMM D, YYYY');
 
   return (
     <div className="flex items-center gap-2">
       <button
         onClick={prev}
+        disabled={isAtLaunch}
         className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-        style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
+        style={{ background: 'var(--bg-primary)', color: isAtLaunch ? 'var(--text-secondary)' : 'var(--text-primary)', border: '1px solid var(--border)', opacity: isAtLaunch ? 0.4 : 1, cursor: isAtLaunch ? 'not-allowed' : 'pointer' }}
       >
         &#8592;
       </button>
@@ -30,7 +35,8 @@ export default function DatePicker({ date, onChange }: DatePickerProps) {
         <input
           type="date"
           value={date}
-          onChange={(e) => onChange(e.target.value)}
+          min={LAUNCH_DATE}
+          onChange={(e) => { if (e.target.value >= LAUNCH_DATE) onChange(e.target.value); }}
           className="px-2 py-1.5 rounded-lg text-sm"
           style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
         />

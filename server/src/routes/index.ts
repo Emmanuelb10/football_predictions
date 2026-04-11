@@ -2,7 +2,6 @@ import { Router, Request, Response } from 'express';
 import matchesRouter from './matches';
 import predictionsRouter from './predictions';
 import performanceRouter from './performance';
-import { env } from '../config/env';
 
 const router = Router();
 
@@ -14,10 +13,7 @@ router.get('/health', async (_req: Request, res: Response) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    ai: {
-      claude: env.CLAUDE_API_KEY ? 'configured' : 'missing',
-      gemini: env.GEMINI_API_KEY ? 'configured' : 'not set (optional)',
-    },
+    sources: ['livescore.com', 'prosoccer.gr', 'zulubet.com'],
   });
 });
 

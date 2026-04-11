@@ -12,12 +12,22 @@ dayjs.extend(timezone);
 
 const router = Router();
 
+// App launch date — no predictions shown before this date
+const LAUNCH_DATE = '2026-03-16';
+
 // Track dates currently being ingested to avoid duplicate work
 const ingestingDates = new Set<string>();
 
 router.get('/', async (req: Request, res: Response) => {
   try {
     const date = (req.query.date as string) || dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
+
+    // Block dates before launch
+    if (date < LAUNCH_DATE) {
+      res.json({ date, matches: [] });
+      return;
+    }
+
     let matches = await MatchModel.findByDate(date);
 
     // Auto-ingest if no matches exist for this date (only once per date)
@@ -42,6 +52,18 @@ router.get('/', async (req: Request, res: Response) => {
       }
     }
 
+    // Auto-sync results for past dates with unfinished matches
+    const today = dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
+    if (date < today && matches.some((m: any) => m.status === 'scheduled')) {
+      try {
+        const { syncResultsForDate } = await import('../cron/resultSync');
+        await syncResultsForDate(date);
+        matches = await MatchModel.findByDate(date);
+      } catch (err: any) {
+        logger.error(`Auto result sync failed for ${date}: ${err.message}`);
+      }
+    }
+
     // Attach latest odds to each match
     const matchIds = matches.map((m: any) => m.id);
     const allOdds = matchIds.length > 0 ? await OddsModel.getOddsForMatches(matchIds) : [];
@@ -59,12 +81,16 @@ router.get('/', async (req: Request, res: Response) => {
       };
     });
 
-    // Filter: only show matches where the tipped odds are in 1.50-1.99
+    // Filter: 70%+ probability AND tipped odds 1.50-1.99 AND opposing side >= 5.00
     const filtered = enriched.filter((m: any) => {
-      if (!m.odds || m.odds.length === 0) return true; // keep if no odds yet
+      const conf = Number(m.confidence) || 0;
+      if (conf < 0.70) return false;
+      if (!m.odds || m.odds.length === 0) return false;
       const o = m.odds[0];
       const tipOdds = m.tip === '1' ? o.home : m.tip === '2' ? o.away : o.draw;
-      return tipOdds >= 1.50 && tipOdds <= 1.99;
+      if (tipOdds < 1.50 || tipOdds > 1.99) return false;
+      const opposingOdds = m.tip === '1' ? o.away : m.tip === '2' ? o.home : Math.min(o.home, o.away);
+      return opposingOdds >= 5.00;
     });
 
     res.json({ date, matches: filtered });
@@ -74,8 +100,22 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // Settled matches since timestamp — for live result polling
+// Also triggers a quick result sync if there are matches that should have ended
 router.get('/settled', async (req: Request, res: Response) => {
   try {
+    // Check if any matches should have finished by now (kickoff > 105 min ago, still scheduled)
+    const pending = await query(
+      `SELECT COUNT(*) as c FROM matches WHERE status = 'scheduled' AND kickoff < NOW() - INTERVAL '105 minutes'`
+    );
+    if (Number(pending.rows[0].c) > 0) {
+      try {
+        const { syncResults } = await import('../cron/resultSync');
+        await syncResults();
+      } catch {
+        // Silent — cron will catch it
+      }
+    }
+
     const since = (req.query.since as string) || new Date(Date.now() - 3600000).toISOString();
     const res2 = await query(
       `SELECT m.id, m.home_score, m.away_score, m.status, m.updated_at,

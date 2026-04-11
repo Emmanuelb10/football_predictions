@@ -21,6 +21,8 @@ services:
     restart: unless-stopped
     ports:
       - "3001:3001"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=3001
@@ -29,16 +31,15 @@ services:
       - DB_NAME=football_predictions
       - DB_USER=football_app
       - DB_PASS=football_pass
-      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - DATABASE_URL=postgresql://football_app:football_pass@db:5432/football_predictions
     depends_on:
       db:
         condition: service_healthy
     command: >
       sh -c "
         cd server &&
-        npx knex migrate:latest --knexfile knexfile.ts 2>/dev/null;
-        npx knex seed:run --knexfile knexfile.ts 2>/dev/null;
+        npx knex migrate:latest --knexfile knexfile.ts &&
+        npx knex seed:run --knexfile knexfile.ts;
         cd .. &&
         node server/dist/index.js
       "

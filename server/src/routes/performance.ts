@@ -9,6 +9,8 @@ dayjs.extend(timezone);
 
 const router = Router();
 
+const LAUNCH_DATE = '2026-03-16';
+
 router.get('/', async (req: Request, res: Response) => {
   try {
     const days = parseInt(req.query.days as string) || 30;
@@ -26,6 +28,7 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/daily', async (req: Request, res: Response) => {
   try {
     const date = (req.query.date as string) || dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
+    if (date < LAUNCH_DATE) { res.json({ date, totalPicks: 0, settled: 0, pending: 0, void: 0, wins: 0, losses: 0, profitUnits: 0, streak: { type: 'W', count: 0 } }); return; }
     const pl = await performanceTracker.getDailyPL(date);
     res.json({ date, ...pl });
   } catch (error: any) {

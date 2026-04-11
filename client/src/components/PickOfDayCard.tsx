@@ -37,10 +37,12 @@ export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
   const tipLabel = pick.tip === '1' ? 'Home Win' : pick.tip === '2' ? 'Away Win' : 'Draw';
   const confidence = (Number(pick.confidence) * 100).toFixed(1);
   const ev = (Number(pick.expected_value) * 100).toFixed(1);
+  const odds = pick.tip === '1' ? pick.home_odds : pick.tip === 'X' ? pick.draw_odds : pick.away_odds;
   const kickoff = new Date(pick.kickoff).toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
+    timeZone: 'Africa/Nairobi',
   });
 
   return (
@@ -65,7 +67,7 @@ export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
         {/* Teams */}
         <div className="flex flex-col items-center md:items-start">
           <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
-            {pick.tournament} &middot; {kickoff} UTC
+            {pick.tournament} &middot; {kickoff} EAT
           </p>
           <div className="flex items-center gap-3">
             <span className="text-lg font-bold">{pick.home_team}</span>
@@ -87,6 +89,14 @@ export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
               {confidence}%
             </p>
           </div>
+          {odds && (
+            <div className="text-center">
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Odds<InfoTip text="Decimal odds for the tipped outcome from scraped bookmaker lines" /></p>
+              <p className="text-2xl font-bold" style={{ color: 'var(--accent-gold)' }}>
+                {Number(odds).toFixed(2)}
+              </p>
+            </div>
+          )}
           <div className="text-center">
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Expected Value<InfoTip text="EV = (probability x odds) - 1. Positive EV means profitable long-term" /></p>
             <p

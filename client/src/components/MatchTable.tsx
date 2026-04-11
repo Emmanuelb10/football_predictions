@@ -27,15 +27,19 @@ export default function MatchTable({ matches, loading, date, isFetching, settled
   }
 
   const formatTime = (kickoff: string) =>
-    new Date(kickoff).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    new Date(kickoff).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Africa/Nairobi' });
 
   const getResult = (m: any) => {
     if (m.status === 'finished') return `${m.home_score} - ${m.away_score}`;
+    if (m.status === 'postponed') return 'PPD';
+    if (m.status === 'cancelled') return 'CAN';
     if (m.status === 'live') return 'LIVE';
     return 'vs';
   };
 
   const getResultColor = (m: any) => {
+    if (m.status === 'postponed') return '#f59e0b';
+    if (m.status === 'cancelled') return '#6b7280';
     if (m.status !== 'finished' || !m.tip) return 'var(--text-secondary)';
     const actual = m.home_score > m.away_score ? '1' : m.home_score < m.away_score ? '2' : 'X';
     return m.tip === actual ? 'var(--accent-green)' : 'var(--accent-red)';

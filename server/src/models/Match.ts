@@ -37,9 +37,7 @@ export async function upsert(data: Partial<Match>): Promise<Match> {
     `INSERT INTO matches (api_football_id, tournament_id, home_team_id, away_team_id, kickoff, status, home_score, away_score, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
      ON CONFLICT (api_football_id) DO UPDATE SET
-       status = COALESCE($6, matches.status),
-       home_score = COALESCE($7, matches.home_score),
-       away_score = COALESCE($8, matches.away_score),
+       status = CASE WHEN matches.status = 'finished' THEN matches.status ELSE COALESCE($6, matches.status) END,
        updated_at = NOW()
      RETURNING *`,
     [data.api_football_id, data.tournament_id, data.home_team_id, data.away_team_id, data.kickoff, data.status, data.home_score ?? null, data.away_score ?? null]
@@ -56,7 +54,15 @@ export async function updateResult(matchId: number, homeScore: number, awayScore
 
 export async function findPendingResults() {
   const res = await query(
-    `SELECT * FROM matches WHERE status = 'scheduled' AND kickoff < NOW() - INTERVAL '2 hours'`
+    `SELECT * FROM matches WHERE status = 'scheduled' AND kickoff < NOW() - INTERVAL '105 minutes'`
+  );
+  return res.rows;
+}
+
+export async function findStaleScheduled() {
+  // Matches still 'scheduled' but kickoff was 48+ hours ago — likely postponed/cancelled
+  const res = await query(
+    `SELECT * FROM matches WHERE status = 'scheduled' AND kickoff < NOW() - INTERVAL '48 hours'`
   );
   return res.rows;
 }

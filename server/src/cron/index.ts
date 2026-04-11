@@ -12,7 +12,7 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const TZ = 'Africa/Nairobi';
-const STALE_HOURS = 5;
+const STALE_HOURS = 1;
 
 /**
  * Get the Sunday–Saturday week boundaries for a given date.
@@ -26,13 +26,17 @@ function getWeekRange(now: dayjs.Dayjs): { start: dayjs.Dayjs; end: dayjs.Dayjs 
 }
 
 /**
- * Sync fixtures for the full Sun–Sat week.
+ * Sync fixtures for the full Sun–Sat week + next 3 days.
+ * Ensures tomorrow and upcoming days are always covered.
  * Skips days that were ingested within the last STALE_HOURS.
  */
 async function syncWeeklyFixtures() {
   const now = dayjs().tz(TZ);
-  const { start, end } = getWeekRange(now);
-  logger.info(`Weekly sync: ${start.format('YYYY-MM-DD')} (Sun) to ${end.format('YYYY-MM-DD')} (Sat) [${now.format('HH:mm')} ${TZ}]`);
+  const { start, end: weekEnd } = getWeekRange(now);
+  // Extend to cover at least 3 days beyond today (catches next week's early matches)
+  const tomorrow3 = now.add(3, 'day');
+  const end = tomorrow3.isAfter(weekEnd) ? tomorrow3 : weekEnd;
+  logger.info(`Fixture sync: ${start.format('YYYY-MM-DD')} to ${end.format('YYYY-MM-DD')} [${now.format('HH:mm')} ${TZ}]`);
 
   let synced = 0;
   for (let d = start; d.isBefore(end.add(1, 'day')); d = d.add(1, 'day')) {
@@ -47,9 +51,12 @@ async function syncWeeklyFixtures() {
     const count = parseInt(res.rows[0].count);
     const latest = res.rows[0].latest ? dayjs(res.rows[0].latest) : null;
     const isStale = !latest || dayjs().diff(latest, 'hour') >= STALE_HOURS;
+    const isToday = date === now.format('YYYY-MM-DD');
+    const isTomorrow = date === now.add(1, 'day').format('YYYY-MM-DD');
 
-    if (count === 0 || isStale) {
-      logger.info(`Syncing ${date} (${count === 0 ? 'missing' : 'stale'})`);
+    // Always re-scrape today and tomorrow (prediction sites update throughout the day)
+    if (count === 0 || isStale || isToday || isTomorrow) {
+      logger.info(`Syncing ${date} (${count === 0 ? 'missing' : isToday ? 'today' : isTomorrow ? 'tomorrow' : 'stale'})`);
       try {
         await ingestFixtures(date);
         synced++;
@@ -62,18 +69,33 @@ async function syncWeeklyFixtures() {
   }
 
   if (synced > 0) {
-    logger.info(`Weekly sync complete: ${synced} days ingested. Syncing results...`);
+    logger.info(`Fixture sync complete: ${synced} days ingested. Syncing results...`);
     await syncResults();
   } else {
-    logger.info('Weekly sync: all days are fresh');
+    logger.info('Fixture sync: all days are fresh');
   }
 }
 
 export function startCronJobs() {
-  // Weekly fixture sync every 5 hours (Africa/Nairobi)
-  cron.schedule('0 */5 * * *', async () => {
-    logger.info('CRON: Weekly fixture sync starting');
+  // Full week fixture sync every hour
+  cron.schedule('0 * * * *', async () => {
+    logger.info('CRON: Hourly full-week fixture sync');
     await syncWeeklyFixtures();
+  }, { timezone: TZ });
+
+  // Fast sync for today + tomorrow every 30 minutes — catches zulubet/prosoccer updates quickly
+  cron.schedule('*/30 * * * *', async () => {
+    const now = dayjs().tz(TZ);
+    const today = now.format('YYYY-MM-DD');
+    const tomorrow = now.add(1, 'day').format('YYYY-MM-DD');
+    logger.info(`CRON: Fast sync for ${today} and ${tomorrow}`);
+    try {
+      await ingestFixtures(today);
+      await new Promise(r => setTimeout(r, 2000));
+      await ingestFixtures(tomorrow);
+    } catch (err: any) {
+      logger.error(`Fast sync failed: ${err.message}`);
+    }
   }, { timezone: TZ });
 
   // Odds sync every 15 minutes
@@ -82,13 +104,12 @@ export function startCronJobs() {
     await syncOdds();
   }, { timezone: TZ });
 
-  // Result sync every 10 minutes during peak match hours (17:00-06:00 EAT)
-  cron.schedule('*/10 17-23,0-6 * * *', async () => {
-    logger.info('CRON: Result sync starting');
+  // Result sync every 5 minutes, 24/7 — catches results as soon as matches end
+  cron.schedule('*/5 * * * *', async () => {
     await syncResults();
   }, { timezone: TZ });
 
-  logger.info(`Cron jobs registered (${TZ}): fixture sync (*/5hr), odds sync (*/15min), result sync (*/10min 17-06)`);
+  logger.info(`Cron jobs registered (${TZ}): fixture sync (hourly), fast sync today+tomorrow (*/30min), odds sync (*/15min), result sync (*/5min)`);
 
   // Run weekly sync immediately on startup (non-blocking)
   syncWeeklyFixtures().catch(err => logger.error(`Startup sync error: ${err.message}`));

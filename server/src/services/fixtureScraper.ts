@@ -1,8 +1,9 @@
 import axios from 'axios';
+import * as cheerio from 'cheerio';
 import logger from '../config/logger';
-import { env } from '../config/env';
+import { fetchScheduledFixtures } from './livescoreFetcher';
+import { teamsMatch } from './livescoreFetcher';
 import { scrapeZulubet } from './zulubetScraper';
-import { scrape1xbet } from './onexbetScraper';
 
 export interface ScrapedFixture {
   homeTeam: string;
@@ -77,13 +78,12 @@ function getProsoccerUrl(date: string): string {
   if (diffDays === -1) return 'https://www.prosoccer.gr/en/football/predictions/yesterday.html';
   if (diffDays === 1) return 'https://www.prosoccer.gr/en/football/predictions/tomorrow.html';
 
-  // For other days within the week, use day name
   const dayName = target.toLocaleDateString('en-US', { weekday: 'long' });
   return `https://www.prosoccer.gr/en/football/predictions/${dayName}.html`;
 }
 
 /**
- * Scrape fixtures from prosoccer.gr using Claude to parse the page content.
+ * Scrape fixtures from prosoccer.gr using cheerio to parse HTML directly.
  */
 export async function scrapeFixtures(date: string): Promise<ScrapedFixture[]> {
   try {
@@ -92,111 +92,96 @@ export async function scrapeFixtures(date: string): Promise<ScrapedFixture[]> {
     const { data: html } = await axios.get(url, {
       timeout: 20000,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': 'https://www.prosoccer.gr/',
+        'sec-ch-ua': '"Chromium";v="131", "Not_A Brand";v="24"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'sec-fetch-dest': 'document',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-site': 'same-origin',
       },
     });
 
-    // Strip scripts/styles, keep text content
-    const text = html
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/\s{2,}/g, ' ')
-      .trim();
+    const $ = cheerio.load(html);
+    const fixtures: ScrapedFixture[] = [];
 
-    // Use Claude to extract structured match data from the page text
-    const { data: response } = await axios.post(
-      'https://api.anthropic.com/v1/messages',
-      {
-        model: 'claude-sonnet-4-6',
-        max_tokens: 8192,
-        messages: [{
-          role: 'user',
-          content: `Extract ALL football match predictions from this prosoccer.gr page text. The data contains rows with: LEAGUE_CODE | TIME | TEAM1 - TEAM2 | probability1% | probabilityX% | probability2% | tip | odds1 | oddsX | odds2
+    // prosoccer.gr uses table rows with match data:
+    // cells: league_code | time | teams | prob1 | probX | prob2 | tip | odds1 | oddsX | odds2 | ...
+    $('table tr').each((_i, row) => {
+      try {
+        const cells = $(row).find('td');
+        if (cells.length < 10) return;
 
-Page text:
-${text.substring(0, 30000)}
+        // First cell should be a league code (2-3 uppercase letters + optional digit)
+        const leagueCode = $(cells[0]).text().trim();
+        if (!leagueCode.match(/^[A-Z]{2,3}\d?$/)) return;
 
-Some matches may show a final score (e.g. "1-1" or "2-0") — include it if present.
+        const time = $(cells[1]).text().trim();
+        if (!time.match(/^\d{1,2}:\d{2}$/)) return;
 
-Return ONLY a JSON array with every match:
-[{"league":"EN1","time":"19:45","home":"BOLTON","away":"DONCASTER","homeProb":77,"drawProb":19,"awayProb":4,"tip":"1","homeOdds":1.60,"drawOdds":3.95,"awayOdds":4.50,"score":"2-1"}]
+        const teamsText = $(cells[2]).text().trim();
+        const teamParts = teamsText.split(/\s*-\s*/);
+        if (teamParts.length < 2) return;
+        const homeTeam = teamParts[0].trim();
+        const awayTeam = teamParts.slice(1).join('-').trim();
+        if (!homeTeam || !awayTeam) return;
 
-Rules:
-- Include EVERY match from the page, do not skip any
-- tip: "1" for home, "X" for draw, "2" for away. If tip shows "a1" or just a number, map it: a1->1, aX->X, a2->2, a1X->1, a21->2, a12->1, a2X->2, aX1->X
-- Probabilities are integers (percentages)
-- Odds are decimal numbers`
-        }],
-      },
-      {
-        headers: {
-          'x-api-key': env.CLAUDE_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        timeout: 90000,
-      }
-    );
+        const homeProb = parseInt($(cells[3]).text().trim()) || 0;
+        const drawProb = parseInt($(cells[4]).text().trim()) || 0;
+        const awayProb = parseInt($(cells[5]).text().trim()) || 0;
 
-    const aiText = response.content?.[0]?.text;
-    if (!aiText) {
-      logger.error('Claude returned empty response for prosoccer parsing');
-      return [];
-    }
-
-    const jsonMatch = aiText.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
-      logger.error('No JSON array in Claude prosoccer response');
-      return [];
-    }
-
-    const rawMatches: any[] = JSON.parse(jsonMatch[0]);
-    const fixtures: ScrapedFixture[] = rawMatches.map(m => {
-      const leagueInfo = LEAGUE_CODE_MAP[m.league] || { name: m.league, country: 'Unknown' };
-
-      // Normalize tip
-      let tip = String(m.tip || '').replace(/^a/, '');
-      if (tip.length > 1) tip = tip[0]; // Take first char for compound tips like "12", "1X"
-      if (!['1', 'X', '2'].includes(tip)) {
-        // Determine from probabilities
-        const h = m.homeProb || 0, d = m.drawProb || 0, a = m.awayProb || 0;
-        tip = h >= d && h >= a ? '1' : d >= a ? 'X' : '2';
-      }
-
-      // Parse score if present (e.g. "2-1", "1-0")
-      let homeScore: number | undefined;
-      let awayScore: number | undefined;
-      let status: ScrapedFixture['status'] = 'scheduled';
-      if (m.score && typeof m.score === 'string') {
-        const scoreParts = m.score.match(/(\d+)\s*[-:]\s*(\d+)/);
-        if (scoreParts) {
-          homeScore = parseInt(scoreParts[1]);
-          awayScore = parseInt(scoreParts[2]);
-          status = 'finished';
+        // Normalize tip: strip 'a' prefix, take first char for compounds
+        let tip = $(cells[6]).text().trim().replace(/^a/, '');
+        if (tip.length > 1) tip = tip[0];
+        if (!['1', 'X', '2'].includes(tip)) {
+          tip = homeProb >= drawProb && homeProb >= awayProb ? '1' : drawProb >= awayProb ? 'X' : '2';
         }
-      }
 
-      return {
-        homeTeam: m.home,
-        awayTeam: m.away,
-        league: leagueInfo.name,
-        country: leagueInfo.country,
-        kickoff: m.time || '15:00',
-        status,
-        homeScore,
-        awayScore,
-        homeWinProb: (m.homeProb || 0) / 100,
-        drawProb: (m.drawProb || 0) / 100,
-        awayWinProb: (m.awayProb || 0) / 100,
-        tip,
-        homeOdds: m.homeOdds || undefined,
-        drawOdds: m.drawOdds || undefined,
-        awayOdds: m.awayOdds || undefined,
-      };
+        const homeOdds = parseFloat($(cells[7]).text().trim()) || 0;
+        const drawOdds = parseFloat($(cells[8]).text().trim()) || 0;
+        const awayOdds = parseFloat($(cells[9]).text().trim()) || 0;
+
+        // Check for score in later cells (past matches)
+        let homeScore: number | undefined;
+        let awayScore: number | undefined;
+        let status: ScrapedFixture['status'] = 'scheduled';
+        for (let c = 10; c < cells.length; c++) {
+          const cellText = $(cells[c]).text().trim();
+          const scoreParts = cellText.match(/^(\d+)\s*[-:]\s*(\d+)$/);
+          if (scoreParts) {
+            homeScore = parseInt(scoreParts[1]);
+            awayScore = parseInt(scoreParts[2]);
+            status = 'finished';
+            break;
+          }
+        }
+
+        const leagueInfo = LEAGUE_CODE_MAP[leagueCode] || { name: leagueCode, country: 'Unknown' };
+
+        fixtures.push({
+          homeTeam,
+          awayTeam,
+          league: leagueInfo.name,
+          country: leagueInfo.country,
+          kickoff: time,
+          status,
+          homeScore,
+          awayScore,
+          homeWinProb: homeProb / 100,
+          drawProb: drawProb / 100,
+          awayWinProb: awayProb / 100,
+          tip,
+          homeOdds: homeOdds || undefined,
+          drawOdds: drawOdds || undefined,
+          awayOdds: awayOdds || undefined,
+        });
+      } catch {
+        // Skip unparseable rows
+      }
     });
 
     // Deduplicate
@@ -218,7 +203,6 @@ Rules:
 
 /**
  * Check if two team names likely refer to the same team.
- * Handles cases like "BOLTON" vs "BOLTON WANDERERS", "FC BARCELONA" vs "BARCELONA".
  */
 function teamsMatchFuzzy(a: string, b: string): boolean {
   const na = a.toUpperCase().replace(/^FC\s+|\s+FC$|^SC\s+|\s+SC$/g, '').trim();
@@ -227,47 +211,79 @@ function teamsMatchFuzzy(a: string, b: string): boolean {
   if (na.length >= 4 && nb.length >= 4) {
     if (na.includes(nb) || nb.includes(na)) return true;
   }
-  // Compare first significant word (3+ chars)
   const wa = na.split(/\s+/).find(w => w.length >= 3);
   const wb = nb.split(/\s+/).find(w => w.length >= 3);
   return !!(wa && wb && wa === wb);
 }
 
 /**
- * Scrape from all sources (prosoccer.gr + zulubet.com) and merge.
- * prosoccer is primary, zulubet adds extra matches not found in prosoccer.
+ * Fetch fixtures from all sources. Livescore.com API is the primary fixture source.
+ * Web scrapers (prosoccer, zulubet) enrich matches with odds and probabilities.
  */
 export async function scrapeAllSources(date: string): Promise<ScrapedFixture[]> {
-  const [prosoccerResult, zulubetResult, onexbetResult] = await Promise.allSettled([
+  const [livescoreResult, prosoccerResult, zulubetResult] = await Promise.allSettled([
+    fetchScheduledFixtures(date),
     scrapeFixtures(date),
     scrapeZulubet(date),
-    scrape1xbet(date),
   ]);
 
+  const livescore = livescoreResult.status === 'fulfilled' ? livescoreResult.value : [];
   const prosoccer = prosoccerResult.status === 'fulfilled' ? prosoccerResult.value : [];
   const zulubet = zulubetResult.status === 'fulfilled' ? zulubetResult.value : [];
-  const onexbet = onexbetResult.status === 'fulfilled' ? onexbetResult.value : [];
 
-  // Start with prosoccer (primary), add unique matches from other sources
-  const merged = [...prosoccer];
-
-  let zulubetAdded = 0;
-  for (const zf of zulubet) {
-    if (!merged.some(pf => teamsMatchFuzzy(pf.homeTeam, zf.homeTeam))) {
-      merged.push(zf);
-      zulubetAdded++;
+  // Build odds lookup from scrapers (prosoccer is highest priority — loaded last)
+  const oddsLookup = new Map<string, { odds: ScrapedFixture; source: string }>();
+  for (const src of [
+    { fixtures: zulubet, name: 'zulubet' },
+    { fixtures: prosoccer, name: 'prosoccer' },
+  ]) {
+    for (const f of src.fixtures) {
+      if (f.homeOdds && f.drawOdds && f.awayOdds) {
+        oddsLookup.set(f.homeTeam.toUpperCase(), { odds: f, source: src.name });
+      }
     }
   }
 
-  let onexbetAdded = 0;
-  for (const xf of onexbet) {
-    if (!merged.some(pf => teamsMatchFuzzy(pf.homeTeam, xf.homeTeam))) {
-      merged.push(xf);
-      onexbetAdded++;
+  // Convert livescore fixtures to ScrapedFixture, enriching with scraped odds/probs
+  const merged: ScrapedFixture[] = livescore.map(lm => {
+    let odds: ScrapedFixture | undefined;
+    for (const [key, val] of oddsLookup) {
+      if (teamsMatch(lm.homeTeam, key)) {
+        odds = val.odds;
+        break;
+      }
+    }
+
+    return {
+      homeTeam: lm.homeTeam,
+      awayTeam: lm.awayTeam,
+      league: lm.league,
+      country: 'Unknown',
+      kickoff: lm.kickoff,
+      status: (lm.status === '' || lm.status === 'NS') ? 'scheduled' as const : 'live' as const,
+      homeScore: lm.homeScore || undefined,
+      awayScore: lm.awayScore || undefined,
+      homeWinProb: odds?.homeWinProb,
+      drawProb: odds?.drawProb,
+      awayWinProb: odds?.awayWinProb,
+      tip: odds?.tip,
+      homeOdds: odds?.homeOdds,
+      drawOdds: odds?.drawOdds,
+      awayOdds: odds?.awayOdds,
+    };
+  });
+
+  // Add scraper-only matches not in livescore
+  const allScraped = [...prosoccer, ...zulubet];
+  let scraperOnly = 0;
+  for (const sf of allScraped) {
+    if (!merged.some(m => teamsMatchFuzzy(m.homeTeam, sf.homeTeam))) {
+      merged.push(sf);
+      scraperOnly++;
     }
   }
 
-  logger.info(`All sources: ${merged.length} total (prosoccer: ${prosoccer.length}, zulubet+: ${zulubetAdded}, 1xbet+: ${onexbetAdded})`);
+  logger.info(`All sources: ${merged.length} total (livescore: ${livescore.length}, prosoccer: ${prosoccer.length}, zulubet: ${zulubet.length}, scraper-only: ${scraperOnly})`);
   return merged;
 }
 

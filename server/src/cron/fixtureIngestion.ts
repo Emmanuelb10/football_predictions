@@ -5,8 +5,10 @@ import logger from '../config/logger';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
+import { query } from '../config/database';
+import { fetchLivescores, fetchEspnAllMatches, teamsMatch } from '../services/livescoreFetcher';
+import type { LivescoreMatch } from '../services/livescoreFetcher';
 import * as fixtureScraper from '../services/fixtureScraper';
-import * as claudeService from '../services/claudeService';
 import * as predictionEngine from '../services/predictionEngine';
 import * as TournamentModel from '../models/Tournament';
 import * as TeamModel from '../models/Team';
@@ -42,7 +44,6 @@ function findLeague(name: string): { apiId: number; country: string } | null {
   for (const [key, val] of Object.entries(LEAGUE_MAP)) {
     if (lower.includes(key) || key.includes(lower)) return val;
   }
-  // Accept any league from prosoccer.gr even if not in our map
   return { apiId: Math.abs(hashString(name)), country: 'Unknown' };
 }
 
@@ -60,50 +61,71 @@ export async function ingestFixtures(targetDate?: string) {
   logger.info(`Starting fixture ingestion for ${today}`);
 
   try {
-    // Step 1: Scrape fixtures from all sources (prosoccer.gr + zulubet.com)
+    // Step 1: Scrape fixtures from all sources
     logger.info('Scraping all sources for fixtures...');
     let fixtures = await fixtureScraper.scrapeAllSources(today);
 
-    if (fixtures.length === 0) {
-      logger.info(`No fixtures scraped for ${today}`);
-      return;
-    }
-
-    // Filter: must have odds, 70%+ probability, tipped odds in 1.50-1.99
-    const qualified = fixtures.filter(f => {
-      // Must have odds data
+    // Only process matches with 70%+ probability AND tipped odds 1.50-1.99
+    // AND opposing side odds >= 5.00 (heavy underdog — the weaker team is priced
+    // as a long shot, confirming the market agrees with the high-confidence pick).
+    const withPredictions = fixtures.filter(f => {
       if (!f.homeOdds || !f.drawOdds || !f.awayOdds) return false;
+      if (!f.homeWinProb || !f.drawProb || !f.awayWinProb) return false;
 
-      const maxProb = Math.max(f.homeWinProb || 0, f.drawProb || 0, f.awayWinProb || 0);
+      const maxProb = Math.max(f.homeWinProb, f.drawProb, f.awayWinProb);
       if (maxProb < 0.70) return false;
 
-      const tipOdds =
-        f.tip === '1' ? f.homeOdds :
-        f.tip === '2' ? f.awayOdds :
-        f.drawOdds;
-      return tipOdds >= 1.50 && tipOdds <= 1.99;
+      const tip = f.tip || (f.homeWinProb >= f.drawProb && f.homeWinProb >= f.awayWinProb ? '1' :
+        f.drawProb >= f.awayWinProb ? 'X' : '2');
+      const tipOdds = tip === '1' ? f.homeOdds : tip === '2' ? f.awayOdds : f.drawOdds;
+      if (tipOdds < 1.50 || tipOdds > 1.99) return false;
+
+      // Opposing side must be a heavy underdog (>= 5.00). For home/away tips, the
+      // opposing side is the other team. For draw tips, both sides must be >= 5.00.
+      const opposingOdds = tip === '1' ? f.awayOdds : tip === '2' ? f.homeOdds : Math.min(f.homeOdds, f.awayOdds);
+      return opposingOdds >= 5.00;
     });
 
-    const allMatches = qualified.length > 0 ? qualified : fixtures.filter(f =>
-      Math.max(f.homeWinProb || 0, f.drawProb || 0, f.awayWinProb || 0) >= 0.70
-    );
-    logger.info(`${fixtures.length} total, ${qualified.length} with 70%+ prob AND odds 1.50-1.99`);
+    logger.info(`${fixtures.length} total fixtures, ${withPredictions.length} qualify (70%+ prob, odds 1.50-1.99, opposing >= 5.00)`);
 
-    if (allMatches.length === 0) {
-      logger.info(`No qualifying fixtures for ${today}`);
+    if (withPredictions.length === 0) {
+      logger.info(`No fixtures with predictions for ${today}`);
       return;
     }
 
-    logger.info(`Processing ${allMatches.length} fixtures for ${today}`);
+    // Step 2: Verify matches exist on ESPN or livescore for this date (±1 day)
+    const prevDate = dayjs(today).subtract(1, 'day').format('YYYY-MM-DD');
+    const nextDate = dayjs(today).add(1, 'day').format('YYYY-MM-DD');
+    const [espnMain, espnPrev, espnNext, lsMain, lsPrev, lsNext] = await Promise.all([
+      fetchEspnAllMatches(today).catch(() => [] as LivescoreMatch[]),
+      fetchEspnAllMatches(prevDate).catch(() => [] as LivescoreMatch[]),
+      fetchEspnAllMatches(nextDate).catch(() => [] as LivescoreMatch[]),
+      fetchLivescores(today),
+      fetchLivescores(prevDate),
+      fetchLivescores(nextDate),
+    ]);
+    const verifyPool = [...espnMain, ...espnPrev, ...espnNext, ...lsMain, ...lsPrev, ...lsNext];
 
-    // Step 2: Store fixtures in DB
+    const verified = withPredictions.filter(f => {
+      // Require BOTH home AND away team to match — prevents false positives from partial name matches
+      const found = verifyPool.some(v =>
+        teamsMatch(f.homeTeam, v.homeTeam) && teamsMatch(f.awayTeam, v.awayTeam)
+      );
+      if (!found) logger.info(`Unverified (not on ESPN/livescore): ${f.homeTeam} vs ${f.awayTeam}`);
+      return found;
+    });
+
+    logger.info(`${verified.length}/${withPredictions.length} verified on ESPN/livescore`);
+
+    if (verified.length === 0) {
+      logger.info(`No verified fixtures for ${today}`);
+      return;
+    }
+
+    // Step 3: Store verified qualifying fixtures in DB
     let ingested = 0;
-    const matchesNeedingPredictions: Array<{
-      id: number; homeTeam: string; awayTeam: string;
-      league: string; country: string; kickoff: string;
-    }> = [];
 
-    for (const f of allMatches) {
+    for (const f of verified) {
       const leagueInfo = findLeague(f.league);
       if (!leagueInfo) continue;
 
@@ -130,81 +152,65 @@ export async function ingestFixtures(targetDate?: string) {
       const kickoff = new Date(`${today}T${kickoffTime}:00Z`);
       const matchApiId = hashString(`${today}-${f.homeTeam}-${f.awayTeam}`);
 
+      // Skip recycled matches: same teams already exist within ±7 days OR already finished
+      const dupCheck = await query(
+        `SELECT id, status FROM matches
+         WHERE home_team_id = $1 AND away_team_id = $2
+           AND kickoff BETWEEN $3::timestamp - INTERVAL '7 days' AND $3::timestamp + INTERVAL '7 days'`,
+        [homeTeam.id, awayTeam.id, kickoff]
+      );
+      if (dupCheck.rows.length > 0) {
+        const isRecycled = dupCheck.rows.some((r: any) => r.status === 'finished');
+        if (isRecycled) {
+          logger.info(`Skipping recycled match: ${f.homeTeam} vs ${f.awayTeam} (already finished)`);
+        }
+        continue;
+      }
+
+      // Always ingest as scheduled — result sync picks up scores from livescore.com
       const match = await MatchModel.upsert({
         api_football_id: matchApiId,
         tournament_id: tournament.id,
         home_team_id: homeTeam.id,
         away_team_id: awayTeam.id,
         kickoff,
-        status: f.status || 'scheduled',
-        home_score: f.homeScore ?? null,
-        away_score: f.awayScore ?? null,
+        status: 'scheduled',
+        home_score: null,
+        away_score: null,
       });
 
-      // Store scraped odds — skip match entirely if no odds
-      if (f.homeOdds && f.drawOdds && f.awayOdds) {
-        await OddsModel.insert({
-          match_id: match.id,
-          bookmaker: 'prosoccer',
-          market: '1x2',
-          home_odds: f.homeOdds,
-          draw_odds: f.drawOdds,
-          away_odds: f.awayOdds,
-        });
-      }
+      // Store scraped odds
+      await OddsModel.insert({
+        match_id: match.id,
+        bookmaker: 'scraped',
+        market: '1x2',
+        home_odds: f.homeOdds!,
+        draw_odds: f.drawOdds!,
+        away_odds: f.awayOdds!,
+      });
 
-      // Store scraped prediction directly if available
-      if (f.homeWinProb && f.drawProb && f.awayWinProb) {
-        const tip = f.tip || (f.homeWinProb >= f.drawProb && f.homeWinProb >= f.awayWinProb ? '1' :
-          f.drawProb >= f.awayWinProb ? 'X' : '2');
+      // Store scraped prediction
+      const tip = f.tip || (f.homeWinProb! >= f.drawProb! && f.homeWinProb! >= f.awayWinProb! ? '1' :
+        f.drawProb! >= f.awayWinProb! ? 'X' : '2');
 
-        await predictionEngine.processAIPrediction(match.id, {
-          homeTeam: f.homeTeam, awayTeam: f.awayTeam,
-          league: f.league, country: f.country, kickoff: kickoffTime,
-        }, 0, {
-          homeWinProb: f.homeWinProb,
-          drawProb: f.drawProb,
-          awayWinProb: f.awayWinProb,
-          confidence: Math.max(f.homeWinProb, f.drawProb, f.awayWinProb),
-          tip,
-          reasoning: 'prosoccer.gr prediction',
-        });
-      } else {
-        // Need Claude prediction for this match
-        matchesNeedingPredictions.push({
-          id: match.id, homeTeam: f.homeTeam, awayTeam: f.awayTeam,
-          league: f.league, country: f.country, kickoff: kickoffTime,
-        });
-      }
+      await predictionEngine.processPrediction(match.id, {
+        homeTeam: f.homeTeam, awayTeam: f.awayTeam,
+        league: f.league, country: f.country, kickoff: kickoffTime,
+      }, 0, {
+        homeWinProb: f.homeWinProb!,
+        drawProb: f.drawProb!,
+        awayWinProb: f.awayWinProb!,
+        confidence: Math.max(f.homeWinProb!, f.drawProb!, f.awayWinProb!),
+        tip,
+        reasoning: 'Scraped prediction',
+      });
 
       ingested++;
     }
 
-    logger.info(`Ingested ${ingested} matches (${ingested - matchesNeedingPredictions.length} with scraped predictions)`);
+    logger.info(`Ingested ${ingested} matches with scraped predictions`);
 
-    // Step 3: Get Claude predictions for matches without scraped predictions
-    if (matchesNeedingPredictions.length > 0) {
-      logger.info(`Requesting Claude predictions for ${matchesNeedingPredictions.length} matches`);
-      const predictions = await claudeService.predictMatches(matchesNeedingPredictions);
-
-      for (const match of matchesNeedingPredictions) {
-        const pred = predictions.get(match.id);
-        if (!pred) continue;
-
-        await OddsModel.insert({
-          match_id: match.id,
-          bookmaker: 'claude_estimate',
-          market: '1x2',
-          home_odds: pred.estimatedOdds.home,
-          draw_odds: pred.estimatedOdds.draw,
-          away_odds: pred.estimatedOdds.away,
-        });
-
-        await predictionEngine.processAIPrediction(match.id, match, 0, pred);
-      }
-    }
-
-    // Step 4: Pick of the Day
+    // Step 3: Pick of the Day
     await predictionEngine.selectPickOfDay(today);
 
     logger.info('Fixture ingestion complete');

@@ -44,8 +44,9 @@ export async function getDailyPL(date: string) {
     [date]
   );
 
-  let wins = 0, losses = 0, pending = 0, profitUnits = 0;
+  let wins = 0, losses = 0, pending = 0, voidCount = 0, profitUnits = 0;
   for (const r of res.rows) {
+    if (r.status === 'postponed' || r.status === 'cancelled') { voidCount++; continue; }
     if (r.status !== 'finished') { pending++; continue; }
     const actual = r.home_score > r.away_score ? '1' : r.home_score < r.away_score ? '2' : 'X';
     const tipOdds = r.tip === '1' ? Number(r.home_odds) : r.tip === 'X' ? Number(r.draw_odds) : Number(r.away_odds);
@@ -82,6 +83,7 @@ export async function getDailyPL(date: string) {
     totalPicks: res.rows.length,
     settled: wins + losses,
     pending,
+    void: voidCount,
     wins,
     losses,
     profitUnits: +profitUnits.toFixed(2),

@@ -53,7 +53,19 @@
       "Bash(powershell.exe -Command \"Get-NetFirewallRule -DisplayName 'Football Predictions*' | Format-Table DisplayName, Enabled, Direction, Action -AutoSize\")",
       "Bash(powershell.exe -Command \"Get-NetFirewallRule -DisplayName 'Football Predictions*' | Format-List DisplayName, Enabled, Direction, Action\")",
       "Bash(powershell.exe -Command \"Get-NetFirewallRule -DisplayName 'Football Predictions*' | Get-NetFirewallPortFilter | Format-Table LocalPort, Protocol -AutoSize\")",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "WebFetch(domain:www.forebet.com)",
+      "Bash(curl -s \"https://prod-cdn-public-api.livescore.com/v1/api/app/date/soccer/20260319/1?MD=1\" -H \"Accept: application/json\")",
+      "Bash(curl:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.transfermarkt.us)",
+      "WebFetch(domain:www.flashscore.com)",
+      "WebFetch(domain:www.aiscore.com)",
+      "WebFetch(domain:livescores.biz)",
+      "WebFetch(domain:www.sofascore.com)"
     ]
   }
 }

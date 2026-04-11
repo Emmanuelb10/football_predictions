@@ -61,7 +61,7 @@ export default function App() {
                 Football Predictions
               </h1>
               <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                AI-Powered Value Bet Finder
+                Data-Driven Value Bet Finder
               </p>
             </div>
           </div>

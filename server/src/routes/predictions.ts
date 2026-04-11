@@ -10,9 +10,12 @@ import { query } from '../config/database';
 
 const router = Router();
 
+const LAUNCH_DATE = '2026-03-16';
+
 router.get('/pick-of-day', async (req: Request, res: Response) => {
   try {
     const date = (req.query.date as string) || dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
+    if (date < LAUNCH_DATE) { res.json({ date, pick: null }); return; }
     const pick = await PredictionModel.findPickOfDay(date);
     res.json({ date, pick: pick || null });
   } catch (error: any) {
@@ -24,6 +27,7 @@ router.get('/pick-of-day', async (req: Request, res: Response) => {
 router.get('/accumulators', async (req: Request, res: Response) => {
   try {
     const date = (req.query.date as string) || dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
+    if (date < LAUNCH_DATE) { res.json({ date, accumulators: [] }); return; }
 
     const result = await query(
       `SELECT p.match_id, p.tip, p.confidence, p.expected_value,
@@ -139,10 +143,10 @@ router.get('/potd-history', async (req: Request, res: Response) => {
        JOIN teams at2 ON m.away_team_id = at2.id
        JOIN tournaments t ON m.tournament_id = t.id
        LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC LIMIT 1) oh ON true
-       WHERE p.is_pick_of_day = true
+       WHERE p.is_pick_of_day = true AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') >= $2
        ORDER BY m.kickoff DESC
        LIMIT $1`,
-      [days]
+      [days, LAUNCH_DATE]
     );
 
     // Build a map of POTD picks by date

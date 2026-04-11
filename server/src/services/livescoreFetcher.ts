@@ -58,12 +58,57 @@ export async function fetchLivescores(date: string): Promise<LivescoreMatch[]> {
   }
 }
 
+// Major leagues to include from livescore (case-insensitive substring match).
+// Note: Generic terms like 'premier league' and 'super league' may match non-target
+// countries (e.g., Kazakhstan, South Africa). This is an accepted trade-off — extra
+// matches simply receive AI predictions and don't harm accuracy.
+const TARGET_LEAGUES = [
+  'premier league', 'la liga', 'serie a', 'serie b', 'bundesliga', 'ligue 1', 'ligue 2',
+  'championship', 'league one', 'league two',
+  'champions league', 'europa league', 'conference league',
+  'eredivisie', 'primeira liga', 'liga portugal', 'super lig',
+  'scottish premiership', 'scottish championship',
+  'pro league', 'super league', 'ekstraklasa',
+  'a-league', 'k league', 'liga betplay', 'liga profesional',
+  'copa libertadores', 'copa sudamericana',
+  'fa cup', 'copa del rey', 'coppa italia', 'dfb pokal', 'coupe de france',
+  'nations league', 'world cup', 'euro 202',
+  'mls',
+];
+
+function isTargetLeague(league: string): boolean {
+  const lower = league.toLowerCase();
+  return TARGET_LEAGUES.some(t => lower.includes(t));
+}
+
+/**
+ * Fetch scheduled (upcoming) matches from livescore.com for fixture ingestion.
+ * Filters to major leagues only (livescore returns 700-900 matches globally).
+ */
+export async function fetchScheduledFixtures(date: string): Promise<LivescoreMatch[]> {
+  const all = await fetchLivescores(date);
+  const scheduled = all.filter(m =>
+    !['FT', 'AET', 'AP', 'Pen', 'Canc', 'Postp', 'Abn'].includes(m.status) &&
+    isTargetLeague(m.league)
+  );
+  logger.info(`Livescore scheduled: ${scheduled.length}/${all.length} matches in target leagues for ${date}`);
+  return scheduled;
+}
+
 /**
  * Get only finished matches from livescore.com.
  */
 export async function fetchFinishedResults(date: string): Promise<LivescoreMatch[]> {
   const all = await fetchLivescores(date);
   return all.filter(m => ['FT', 'AET', 'AP', 'Pen'].includes(m.status));
+}
+
+/**
+ * Get postponed/cancelled/abandoned matches from livescore.com.
+ */
+export async function fetchCancelledMatches(date: string): Promise<LivescoreMatch[]> {
+  const all = await fetchLivescores(date);
+  return all.filter(m => ['Postp', 'Canc', 'Abn'].includes(m.status));
 }
 
 /**
@@ -103,13 +148,132 @@ export async function fetchSofascoreResults(date: string): Promise<LivescoreMatc
 }
 
 /**
- * Fuzzy match a team name from our DB against a livescore team name.
+ * Fetch ALL matches from ESPN API (scheduled + finished) for verification.
+ * Used to confirm a match truly exists on a given date before ingesting.
  */
+export async function fetchEspnAllMatches(date: string): Promise<LivescoreMatch[]> {
+  try {
+    const dateCompact = date.replace(/-/g, '');
+    const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates=${dateCompact}&limit=500`;
+    const { data } = await axios.get(url, {
+      timeout: 15000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+      },
+    });
+
+    const matches: LivescoreMatch[] = [];
+    for (const evt of (data.events || [])) {
+      const comp = evt.competitions?.[0];
+      if (!comp) continue;
+
+      const home = comp.competitors?.find((c: any) => c.homeAway === 'home');
+      const away = comp.competitors?.find((c: any) => c.homeAway === 'away');
+      if (!home?.team?.name || !away?.team?.name) continue;
+
+      matches.push({
+        homeTeam: home.team.displayName || home.team.name,
+        awayTeam: away.team.displayName || away.team.name,
+        homeScore: parseInt(home.score) || 0,
+        awayScore: parseInt(away.score) || 0,
+        league: evt.season?.slug || '',
+        status: comp.status?.type?.name || '',
+        kickoff: '',
+      });
+    }
+
+    logger.info(`ESPN (all): ${matches.length} matches for ${date}`);
+    return matches;
+  } catch (error: any) {
+    logger.warn(`ESPN fetch failed: ${error.message}`);
+    return [];
+  }
+}
+
 /**
- * Fuzzy match team names. Strips numbers, suffixes, and compares core name.
+ * Fetch finished results from ESPN API as a third source for result sync.
+ */
+export async function fetchEspnResults(date: string): Promise<LivescoreMatch[]> {
+  try {
+    const dateCompact = date.replace(/-/g, '');
+    const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates=${dateCompact}&limit=500`;
+    const { data } = await axios.get(url, {
+      timeout: 15000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+      },
+    });
+
+    const matches: LivescoreMatch[] = [];
+    for (const evt of (data.events || [])) {
+      const comp = evt.competitions?.[0];
+      if (!comp) continue;
+      const statusName = comp.status?.type?.name || '';
+      if (!statusName.includes('FULL_TIME') && !statusName.includes('FINAL')) continue;
+
+      const home = comp.competitors?.find((c: any) => c.homeAway === 'home');
+      const away = comp.competitors?.find((c: any) => c.homeAway === 'away');
+      if (!home?.team?.name || !away?.team?.name) continue;
+
+      matches.push({
+        homeTeam: home.team.displayName || home.team.name,
+        awayTeam: away.team.displayName || away.team.name,
+        homeScore: parseInt(home.score) || 0,
+        awayScore: parseInt(away.score) || 0,
+        league: evt.season?.slug || '',
+        status: 'FT',
+        kickoff: '',
+      });
+    }
+
+    logger.info(`ESPN: ${matches.length} finished matches for ${date}`);
+    return matches;
+  } catch (error: any) {
+    logger.warn(`ESPN fetch failed: ${error.message}`);
+    return [];
+  }
+}
+
+// Common transliteration aliases (scraper name → livescore name)
+const TEAM_ALIASES: Record<string, string[]> = {
+  'SACHTOR': ['SHAKHTAR'],
+  'SHAKHTAR': ['SACHTOR'],
+  'BAYERN MUNCHEN': ['BAYERN MUNICH'],
+  'BAYERN MUNICH': ['BAYERN MUNCHEN'],
+  'BORUSSIA DORTMU': ['BORUSSIA DORTMUND'],
+  'ATLETICO': ['ATLETICO', 'ATHLETICO'],
+  'ATHLETICO': ['ATLETICO'],
+  'DYNAMO': ['DINAMO'],
+  'DINAMO': ['DYNAMO'],
+  'CSKA': ['PFC CSKA'],
+  'LOKOMOTIV': ['LOKOMOTIVA'],
+  'LOKOMOTIVA': ['LOKOMOTIV'],
+  'MONCHENGLADBACH': ['MOENCHENGLADBACH', "M'GLADBACH"],
+  'MIAMI': ['INTER MIAMI'],
+  'INTER MIAMI': ['MIAMI'],
+  'SPORTING KC': ['SPORTING KANSAS'],
+  'SPORTING KANSAS': ['SPORTING KC'],
+  'NY RED BULLS': ['NEW YORK RED BULLS'],
+  'LA GALAXY': ['LOS ANGELES GALAXY'],
+  'PHILADELPHIA': ['PHILADELPHIA UNION'],
+  'COLUMBUS': ['COLUMBUS CREW'],
+  'MINNESOTA': ['MINNESOTA UNITED'],
+  'NASHVILLE': ['NASHVILLE SC'],
+  'LYON': ['OLYMPIQUE LYONNAIS', 'OL'],
+  'OLYMPIQUE LYONNAIS': ['LYON'],
+  'MARSEILLE': ['OLYMPIQUE MARSEILLE', 'OLYMPIQUE DE MARSEILLE', 'OM'],
+  'OLYMPIQUE MARSEILLE': ['MARSEILLE'],
+  'PARIS': ['PARIS SAINT-GERMAIN', 'PSG'],
+  'PARIS SAINT-GERMAIN': ['PARIS', 'PSG'],
+  'NIGER TORNADOES': ['NIGER TORNADOES FC'],
+};
+
+/**
+ * Fuzzy match team names. Strips suffixes, handles transliteration aliases.
  */
 export function teamsMatch(dbName: string, liveName: string): boolean {
-  // Normalize: uppercase, strip numbers/special chars, trim
   const normalize = (s: string) => s.toUpperCase()
     .replace(/\b(FC|CF|SC|SK|FK|AC|AS|SS|CD|UD|RC|US|SD|CA|SE|CE|AD)\b/g, '')
     .replace(/\d+/g, '')
@@ -123,7 +287,6 @@ export function teamsMatch(dbName: string, liveName: string): boolean {
 
   if (aWords.length === 0 || bWords.length === 0) return false;
 
-  // Check if the main word (longest or first significant word) matches
   const aMain = aWords.reduce((a, b) => a.length >= b.length ? a : b);
   const bMain = bWords.reduce((a, b) => a.length >= b.length ? a : b);
 
@@ -136,6 +299,14 @@ export function teamsMatch(dbName: string, liveName: string): boolean {
   // First word match (at least 4 chars)
   if (aWords[0].length >= 4 && bWords[0].length >= 4 &&
       (aWords[0].startsWith(bWords[0].substring(0, 4)) || bWords[0].startsWith(aWords[0].substring(0, 4)))) return true;
+
+  // Check transliteration aliases
+  const aFull = dbName.toUpperCase();
+  const bFull = liveName.toUpperCase();
+  for (const [key, aliases] of Object.entries(TEAM_ALIASES)) {
+    if (aFull.includes(key) && aliases.some(a => bFull.includes(a))) return true;
+    if (bFull.includes(key) && aliases.some(a => aFull.includes(a))) return true;
+  }
 
   return false;
 }

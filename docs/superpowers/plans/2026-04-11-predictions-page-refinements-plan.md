@@ -327,9 +327,9 @@ async function storePrediction(matchId: number, pred: PredictionInput, matchApiI
     ev = calculateEV(confidence, tipOdds);
     valueBet = qualifiesByOdds(
       tip as Tip,
-      Number(odds.home_odds),
-      Number(odds.draw_odds),
-      Number(odds.away_odds),
+      odds.home_odds != null ? Number(odds.home_odds) : null,
+      odds.draw_odds != null ? Number(odds.draw_odds) : null,
+      odds.away_odds != null ? Number(odds.away_odds) : null,
       confidence,
     );
   }
@@ -685,13 +685,45 @@ docker compose restart app
 
 If running via `node dist/index.js` directly, stop and restart it.
 
-- [ ] **Step 3: Verify today's POTD changed**
+- [ ] **Step 3: Verify today's POTD changed AND conforms to the rule**
 
 ```bash
-curl -s 'http://localhost:3001/api/predictions/pick-of-day?date=2026-04-11' | grep -o '"home_team":"[^"]*"'
+curl -s 'http://localhost:3001/api/predictions/pick-of-day?date=2026-04-11' > /tmp/potd_after_phase1.json
+cat /tmp/potd_after_phase1.json | grep -o '"home_team":"[^"]*"'
 ```
 
-Expected: **NOT** `"home_team":"Cercle Brugge"`. It should be either a different team (one of the 9 conforming matches) or absent (null). Cercle Brugge's away odds are 3.60, failing the rule.
+Expected: **NOT** `"home_team":"Cercle Brugge"`. It should be either a different team (one of the 9 conforming matches) or absent (null).
+
+Then verify the returned POTD actually conforms to the rule (not just "different from before"):
+
+```bash
+cat /tmp/potd_after_phase1.json | python3 -c '
+import sys, json
+data = json.load(sys.stdin)
+pick = data.get("pick")
+if not pick:
+    print("OK: no POTD (acceptable — no qualifying matches)")
+    sys.exit(0)
+conf = float(pick["confidence"])
+tip = pick["tip"]
+home = float(pick["home_odds"])
+draw = float(pick["draw_odds"])
+away = float(pick["away_odds"])
+assert conf >= 0.70, f"FAIL: confidence {conf} < 0.70"
+if tip == "1":
+    assert 1.50 <= home <= 1.99, f"FAIL: home odds {home} not in [1.50,1.99]"
+    assert away >= 5.00, f"FAIL: away odds {away} < 5.00"
+elif tip == "2":
+    assert 1.50 <= away <= 1.99, f"FAIL: away odds {away} not in [1.50,1.99]"
+    assert home >= 5.00, f"FAIL: home odds {home} < 5.00"
+elif tip == "X":
+    assert 1.50 <= draw <= 1.99, f"FAIL: draw odds {draw} not in [1.50,1.99]"
+    assert min(home, away) >= 5.00, f"FAIL: min(home,away) {min(home,away)} < 5.00"
+print(f"OK: POTD satisfies rule (tip={tip}, conf={conf}, H={home}, D={draw}, A={away})")
+'
+```
+
+Expected: `OK: ...` output. Any `AssertionError` means the POTD leak isn't fully fixed — stop and debug.
 
 - [ ] **Step 4: Verify matches count unchanged**
 
@@ -815,6 +847,10 @@ async function main() {
   const client = await getClient();
   try {
     await client.query('BEGIN');
+    // Set a lock timeout so we fail fast if another connection holds matches
+    // instead of hanging. Cron should be paused before running this script;
+    // the timeout is a defensive backstop.
+    await client.query("SET LOCAL lock_timeout = '10s'");
     // Block concurrent ingests/result-syncs during the scan+delete window.
     await client.query('LOCK TABLE matches IN SHARE ROW EXCLUSIVE MODE');
 
@@ -893,7 +929,11 @@ async function main() {
       try {
         await PredictionModel.clearPickOfDay(date);
         const result = await selectPickOfDay(date);
-        console.log(`  ${date}: ${result ? `new POTD match_id=${(result as any).id || (result as any).match_id}` : 'no POTD'}`);
+        // selectPickOfDay returns the winning candidate row from the predictions
+        // SELECT, which has both `id` (prediction id) and `match_id`. Log match_id
+        // since that's what the rest of the system references.
+        const matchId = result ? (result as any).match_id : null;
+        console.log(`  ${date}: ${matchId != null ? `new POTD match_id=${matchId}` : 'no POTD'}`);
       } catch (err: any) {
         console.error(`  ${date}: recomputation failed: ${err.message}`);
       }
@@ -1036,7 +1076,16 @@ Deletion transaction committed.
 Cleanup complete.
 ```
 
-Verify that the deleted count equals the dry-run's `N`.
+- [ ] **Step 2: Assert deleted count equals dry-run count**
+
+```bash
+DRYRUN_N=$(grep -oE 'Found [0-9]+ non-conforming' backups/cleanup_dryrun_1.log | grep -oE '[0-9]+')
+REAL_N=$(grep -oE 'Deleted [0-9]+ matches' backups/cleanup_real.log | grep -oE '[0-9]+')
+echo "dry-run predicted: $DRYRUN_N, real deleted: $REAL_N"
+[ "$DRYRUN_N" = "$REAL_N" ] && echo "MATCH" || { echo "MISMATCH — STOP and investigate"; exit 1; }
+```
+
+Expected output: `dry-run predicted: N, real deleted: N` followed by `MATCH`. A mismatch indicates a race condition or a bug — stop and investigate before proceeding.
 
 ### Task 2.6: Verify idempotency with a third dry-run
 
@@ -1378,13 +1427,21 @@ Expected: build completes without errors, output in `client/dist/`.
 
 Visit `http://localhost:3001/` in a browser (or the LAN IP if testing from another device).
 
-- [ ] **Step 2: Confirm POTD card renders**
+- [ ] **Step 2: Confirm POTD card renders (visual + DOM inspection)**
 
 If a POTD exists for today:
-- The card shows the H / D / A row with three values.
-- The tipped side has a gold background tint and gold text.
-- Any odds in [1.50, 1.99] have a green background tint.
-- Win Prob and Expected Value are still shown.
+1. The card shows the H / D / A row with three values.
+2. The tipped side has a gold background tint and gold text.
+3. Any odds in [1.50, 1.99] have a green background tint.
+4. Win Prob and Expected Value are still shown.
+
+**DOM inspection** (catches silent regressions where the layout collapses vertically):
+
+Open DevTools → Elements. Find the POTD card. Locate the new H/D/A subgroup. Verify:
+- Three sibling `<div>` elements exist inside a `grid grid-cols-3` parent.
+- Each has a label child (`H`, `D`, `A`) and a value child (`1.90`, `3.45`, etc.).
+- The tipped-side div has `background: rgba(245, 158, 11, 0.18)` applied via inline style.
+- The three cells are laid out horizontally (not stacked) on desktop viewport.
 
 If no POTD exists for today:
 - The empty state card shows the new rule text "Picks require 70%+ win probability, tipped odds 1.50-1.99, and opposing side >= 5.00."
@@ -1708,6 +1765,15 @@ Wait 1-2 seconds, confirm the month is still expanded.
 - [ ] **Step 7: Refresh the page**
 
 All months should be closed again (no persistence).
+
+- [ ] **Step 8: Verify month boundary correctness**
+
+If the history data includes a pick near a month boundary (e.g., 2026-03-31 or 2026-04-01), open DevTools → Network, find the `/api/predictions/potd-history?days=30` request, and inspect the response. Each entry has a `date` field in `YYYY-MM-DD` format — verify:
+
+- A pick with `date: "2026-03-31"` appears in the "March 2026" group, not April.
+- A pick with `date: "2026-04-01"` appears in the "April 2026" group, not March.
+
+If a date appears in the wrong group, the timezone assumption in `groupByMonth` is broken — investigate whether the API is returning UTC-normalized dates instead of Africa/Nairobi-normalized dates.
 
 ### Task 4.3: Commit Phase 4
 
@@ -2060,15 +2126,16 @@ export default function PredictionsPage() {
     return ids;
   }, [settledData]);
 
+  // Removed the "Fetching predictions for..." in-progress toast — it fires
+  // on every date change, including rapid arrow-click navigation, which
+  // produced visual spam. Keep only the success toast, which fires once per
+  // date when data lands with value bets present.
   const [prevDate, setPrevDate] = useState('');
   useEffect(() => {
     if (date && date !== prevDate) {
       setPrevDate(date);
-      if (!matchesLoading && isFetching) {
-        addToast(`Fetching predictions for ${dayjs(date).format('MMM D')}...`, 'info');
-      }
     }
-  }, [date, matchesLoading, isFetching]);
+  }, [date, prevDate]);
 
   useEffect(() => {
     if (date && matchData?.matches?.length && !isFetching && date === prevDate) {
@@ -2180,6 +2247,9 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 30000,
       retry: 2,
+      // Don't fire an extra fetch every time the user tabs back to the app.
+      // Our refetchInterval (on hooks that need it) is enough.
+      refetchOnWindowFocus: false,
     },
   },
 });

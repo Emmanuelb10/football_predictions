@@ -99,7 +99,7 @@ export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
         <span className="badge badge-green">{tipLabel}</span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="flex flex-col items-center md:items-start">
           <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
             {pick.tournament} &middot; {kickoff} EAT
@@ -150,22 +150,6 @@ export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
           </div>
         </div>
 
-        <div className="flex flex-col justify-center">
-          <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>Confidence</p>
-          <div className="w-full rounded-full h-3" style={{ background: 'var(--bg-primary)' }}>
-            <div
-              className="h-3 rounded-full transition-all"
-              style={{
-                width: `${confidence}%`,
-                background: 'linear-gradient(90deg, var(--accent-gold), var(--accent-green))',
-              }}
-            ></div>
-          </div>
-          <div className="flex justify-between mt-1">
-            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>0%</span>
-            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>100%</span>
-          </div>
-        </div>
       </div>
 
       {pick.reasoning && (

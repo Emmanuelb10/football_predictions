@@ -57,6 +57,10 @@ function hashString(s: string): number {
   return Math.abs(hash);
 }
 
+function normalizeTeamName(name: string): string {
+  return name.trim().toUpperCase().replace(/\./g, '').replace(/-/g, ' ');
+}
+
 export async function ingestFixtures(targetDate?: string) {
   const today = targetDate || dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
   logger.info(`Starting fixture ingestion for ${today}`);
@@ -132,21 +136,24 @@ export async function ingestFixtures(targetDate?: string) {
         season: 2025,
       });
 
+      const homeNorm = normalizeTeamName(f.homeTeam);
+      const awayNorm = normalizeTeamName(f.awayTeam);
+
       const homeTeam = await TeamModel.upsert({
-        api_football_id: hashString(f.homeTeam),
+        api_football_id: hashString(homeNorm),
         name: f.homeTeam,
         tournament_id: tournament.id,
       });
 
       const awayTeam = await TeamModel.upsert({
-        api_football_id: hashString(f.awayTeam),
+        api_football_id: hashString(awayNorm),
         name: f.awayTeam,
         tournament_id: tournament.id,
       });
 
       const kickoffTime = f.kickoff || '15:00';
       const kickoff = new Date(`${today}T${kickoffTime}:00Z`);
-      const matchApiId = hashString(`${today}-${f.homeTeam}-${f.awayTeam}`);
+      const matchApiId = hashString(`${today}-${homeNorm}-${awayNorm}`);
 
       // Skip recycled matches: same teams already exist within ±7 days OR already finished
       const dupCheck = await query(

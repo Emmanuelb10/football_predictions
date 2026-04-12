@@ -185,6 +185,7 @@ router.get('/potd-history', async (req: Request, res: Response) => {
         ev: Number(r.expected_value),
         score: r.status === 'finished' ? `${r.home_score}-${r.away_score}` : null,
         outcome,
+        status: r.status,
         reasoning: r.reasoning || '',
         profit: outcome === 'won' ? +(tipOdds - 1).toFixed(2) : outcome === 'lost' ? -1 : 0,
       });

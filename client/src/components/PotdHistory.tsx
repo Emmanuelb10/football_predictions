@@ -14,6 +14,7 @@ interface PotdEntry {
   ev: number;
   score: string | null;
   outcome: 'pending' | 'won' | 'lost';
+  status?: string;
   reasoning: string;
   profit: number;
 }
@@ -158,7 +159,12 @@ export default function PotdHistory({ data }: PotdHistoryProps) {
                 </thead>
                 <tbody>
                   {g.entries.map((h, i) => {
-                    const outcomeColor = h.outcome === 'won' ? 'var(--accent-green)' : h.outcome === 'lost' ? 'var(--accent-red)' : 'var(--text-secondary)';
+                    const isVoid = h.outcome === 'pending' && (h.status === 'cancelled' || h.status === 'postponed');
+                    const voidLabel = h.status === 'cancelled' ? 'CAN' : 'PPD';
+                    const outcomeColor = h.outcome === 'won' ? 'var(--accent-green)'
+                      : h.outcome === 'lost' ? 'var(--accent-red)'
+                      : isVoid ? (h.status === 'cancelled' ? 'var(--text-secondary)' : '#f59e0b')
+                      : 'var(--text-secondary)';
                     const dateStr = new Date(h.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                     const dayStr = new Date(h.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' });
                     return (
@@ -198,17 +204,20 @@ export default function PotdHistory({ data }: PotdHistoryProps) {
                           </span>
                         </td>
                         <td className="py-2.5 px-2 text-center font-bold" style={{ color: outcomeColor }}>
-                          {h.score || '-'}
+                          {isVoid ? voidLabel : (h.score || '-')}
                         </td>
                         <td className="py-2.5 px-2 text-center">
                           <span
                             className="px-2 py-0.5 rounded-full text-xs font-bold"
                             style={{
-                              background: h.outcome === 'won' ? 'rgba(34,197,94,0.15)' : h.outcome === 'lost' ? 'rgba(239,68,68,0.15)' : 'rgba(148,163,184,0.15)',
+                              background: h.outcome === 'won' ? 'rgba(34,197,94,0.15)'
+                                : h.outcome === 'lost' ? 'rgba(239,68,68,0.15)'
+                                : isVoid ? (h.status === 'cancelled' ? 'rgba(148,163,184,0.15)' : 'rgba(245,158,11,0.15)')
+                                : 'rgba(148,163,184,0.15)',
                               color: outcomeColor,
                             }}
                           >
-                            {h.outcome === 'won' ? 'WON' : h.outcome === 'lost' ? 'LOST' : 'PENDING'}
+                            {h.outcome === 'won' ? 'WON' : h.outcome === 'lost' ? 'LOST' : isVoid ? voidLabel : 'PENDING'}
                           </span>
                         </td>
                         <td className="py-2.5 px-2 text-center font-bold text-sm" style={{ color: outcomeColor }}>

@@ -6,14 +6,13 @@ import * as MatchModel from '../models/Match';
 import * as OddsModel from '../models/OddsHistory';
 import { query } from '../config/database';
 import logger from '../config/logger';
+import { qualifiesByOdds, type Tip } from '../utils/qualification';
+import { isValidDateString } from '../utils/dateValidation';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const router = Router();
-
-// App launch date — no predictions shown before this date
-const LAUNCH_DATE = '2026-03-16';
 
 // Track dates currently being ingested to avoid duplicate work
 const ingestingDates = new Set<string>();
@@ -22,9 +21,8 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const date = (req.query.date as string) || dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
 
-    // Block dates before launch
-    if (date < LAUNCH_DATE) {
-      res.json({ date, matches: [] });
+    if (!isValidDateString(date)) {
+      res.status(400).json({ error: 'Invalid date', date });
       return;
     }
 
@@ -81,16 +79,17 @@ router.get('/', async (req: Request, res: Response) => {
       };
     });
 
-    // Filter: 70%+ probability AND tipped odds 1.50-1.99 AND opposing side >= 5.00
+    // Filter by the shared qualification rule.
     const filtered = enriched.filter((m: any) => {
-      const conf = Number(m.confidence) || 0;
-      if (conf < 0.70) return false;
-      if (!m.odds || m.odds.length === 0) return false;
+      if (!m.tip || !m.odds || m.odds.length === 0) return false;
       const o = m.odds[0];
-      const tipOdds = m.tip === '1' ? o.home : m.tip === '2' ? o.away : o.draw;
-      if (tipOdds < 1.50 || tipOdds > 1.99) return false;
-      const opposingOdds = m.tip === '1' ? o.away : m.tip === '2' ? o.home : Math.min(o.home, o.away);
-      return opposingOdds >= 5.00;
+      return qualifiesByOdds(
+        m.tip as Tip,
+        o.home ?? null,
+        o.draw ?? null,
+        o.away ?? null,
+        Number(m.confidence) || 0,
+      );
     });
 
     res.json({ date, matches: filtered });

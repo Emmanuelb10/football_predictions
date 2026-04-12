@@ -14,6 +14,7 @@ import * as TournamentModel from '../models/Tournament';
 import * as TeamModel from '../models/Team';
 import * as MatchModel from '../models/Match';
 import * as OddsModel from '../models/OddsHistory';
+import { qualifiesByOdds, type Tip } from '../utils/qualification';
 
 const LEAGUE_MAP: Record<string, { apiId: number; country: string }> = {
   'premier league': { apiId: 39, country: 'England' },
@@ -56,6 +57,10 @@ function hashString(s: string): number {
   return Math.abs(hash);
 }
 
+function normalizeTeamName(name: string): string {
+  return name.trim().toUpperCase().replace(/\./g, '').replace(/-/g, ' ');
+}
+
 export async function ingestFixtures(targetDate?: string) {
   const today = targetDate || dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
   logger.info(`Starting fixture ingestion for ${today}`);
@@ -65,25 +70,20 @@ export async function ingestFixtures(targetDate?: string) {
     logger.info('Scraping all sources for fixtures...');
     let fixtures = await fixtureScraper.scrapeAllSources(today);
 
-    // Only process matches with 70%+ probability AND tipped odds 1.50-1.99
-    // AND opposing side odds >= 5.00 (heavy underdog — the weaker team is priced
-    // as a long shot, confirming the market agrees with the high-confidence pick).
+    // Only process matches that satisfy the shared qualification rule.
     const withPredictions = fixtures.filter(f => {
-      if (!f.homeOdds || !f.drawOdds || !f.awayOdds) return false;
       if (!f.homeWinProb || !f.drawProb || !f.awayWinProb) return false;
-
       const maxProb = Math.max(f.homeWinProb, f.drawProb, f.awayWinProb);
-      if (maxProb < 0.70) return false;
-
-      const tip = f.tip || (f.homeWinProb >= f.drawProb && f.homeWinProb >= f.awayWinProb ? '1' :
-        f.drawProb >= f.awayWinProb ? 'X' : '2');
-      const tipOdds = tip === '1' ? f.homeOdds : tip === '2' ? f.awayOdds : f.drawOdds;
-      if (tipOdds < 1.50 || tipOdds > 1.99) return false;
-
-      // Opposing side must be a heavy underdog (>= 5.00). For home/away tips, the
-      // opposing side is the other team. For draw tips, both sides must be >= 5.00.
-      const opposingOdds = tip === '1' ? f.awayOdds : tip === '2' ? f.homeOdds : Math.min(f.homeOdds, f.awayOdds);
-      return opposingOdds >= 5.00;
+      const tip: Tip = (f.tip as Tip) ||
+        (f.homeWinProb >= f.drawProb && f.homeWinProb >= f.awayWinProb ? '1' :
+         f.drawProb >= f.awayWinProb ? 'X' : '2');
+      return qualifiesByOdds(
+        tip,
+        f.homeOdds ?? null,
+        f.drawOdds ?? null,
+        f.awayOdds ?? null,
+        maxProb,
+      );
     });
 
     logger.info(`${fixtures.length} total fixtures, ${withPredictions.length} qualify (70%+ prob, odds 1.50-1.99, opposing >= 5.00)`);
@@ -136,21 +136,24 @@ export async function ingestFixtures(targetDate?: string) {
         season: 2025,
       });
 
+      const homeNorm = normalizeTeamName(f.homeTeam);
+      const awayNorm = normalizeTeamName(f.awayTeam);
+
       const homeTeam = await TeamModel.upsert({
-        api_football_id: hashString(f.homeTeam),
+        api_football_id: hashString(homeNorm),
         name: f.homeTeam,
         tournament_id: tournament.id,
       });
 
       const awayTeam = await TeamModel.upsert({
-        api_football_id: hashString(f.awayTeam),
+        api_football_id: hashString(awayNorm),
         name: f.awayTeam,
         tournament_id: tournament.id,
       });
 
       const kickoffTime = f.kickoff || '15:00';
       const kickoff = new Date(`${today}T${kickoffTime}:00Z`);
-      const matchApiId = hashString(`${today}-${f.homeTeam}-${f.awayTeam}`);
+      const matchApiId = hashString(`${today}-${homeNorm}-${awayNorm}`);
 
       // Skip recycled matches: same teams already exist within ±7 days OR already finished
       const dupCheck = await query(

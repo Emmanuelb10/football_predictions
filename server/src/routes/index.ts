@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import matchesRouter from './matches';
 import predictionsRouter from './predictions';
 import performanceRouter from './performance';
+import { isValidDateString } from '../utils/dateValidation';
 
 const router = Router();
 
@@ -21,6 +22,10 @@ router.get('/health', async (_req: Request, res: Response) => {
 router.post('/trigger/ingest', async (req: Request, res: Response) => {
   const { ingestFixtures } = await import('../cron/fixtureIngestion');
   const date = req.query.date as string | undefined;
+  if (date && !isValidDateString(date)) {
+    res.status(400).json({ error: 'Invalid date', date });
+    return;
+  }
   res.json({ status: 'ok', message: `Fixture ingestion started for ${date || 'today'}` });
   ingestFixtures(date).catch((e: any) => console.error('Ingestion error:', e.message));
 });
@@ -41,6 +46,10 @@ router.post('/trigger/potd', async (req: Request, res: Response) => {
   try {
     const { selectPickOfDay } = await import('../services/predictionEngine');
     const date = req.query.date as string || new Date().toISOString().slice(0, 10);
+    if (!isValidDateString(date)) {
+      res.status(400).json({ error: 'Invalid date', date });
+      return;
+    }
     const result = await selectPickOfDay(date);
     res.json({ status: 'ok', date, pick: result?.id || null });
   } catch (error: any) {

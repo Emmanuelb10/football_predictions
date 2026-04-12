@@ -16,14 +16,6 @@ export function impliedProbability(odds: number): number {
 }
 
 /**
- * Check if a bet qualifies as a value bet.
- * Conditions: AI prob >= 70% AND odds > 1.5
- */
-export function isValueBet(aiProbability: number, odds: number): boolean {
-  return aiProbability >= 0.70 && odds > 1.50;
-}
-
-/**
  * Determine the tip based on probabilities.
  */
 export function determineTip(homeProb: number, drawProb: number, awayProb: number): string {

@@ -4,7 +4,7 @@ export default function Glossary() {
     { term: 'Prob', def: 'The AI\'s estimated probability (%) of the tipped outcome winning.' },
     { term: 'Odds (H/D/A)', def: 'Decimal betting odds for Home / Draw / Away from bookmakers. Lower odds = more likely outcome. Green highlight = value range (1.50-1.99).' },
     { term: 'EV (Expected Value)', def: 'EV = (probability x odds) - 1. Positive EV means the bet is profitable long-term. Higher is better.' },
-    { term: 'Value Bet', def: 'A match where probability is 70%+ AND the tipped odds are between 1.50-1.99. The AI believes the true chance of winning is higher than what the odds imply.' },
+    { term: 'Value Bet', def: 'A match where probability is 70%+ AND the tipped odds are between 1.50-1.99 AND the opposing side is priced at 5.00 or higher (heavy underdog). The AI believes the true chance of winning is higher than what the odds imply.' },
     { term: 'POTD (Pick of the Day)', def: 'The single best value bet each day, selected by a composite score combining EV, league reliability, team consistency, and Poisson model agreement.' },
     { term: 'W / L / P', def: 'Wins / Losses / Pending. W = tip was correct, L = tip was wrong, P = match not yet finished.' },
     { term: 'Units (u)', def: 'Standard bet sizing. 1 unit = your base stake (e.g. $10). Profit/loss shown in units for consistency. A win at 1.80 odds = +0.80u profit. A loss = -1.00u.' },
@@ -21,11 +21,18 @@ export default function Glossary() {
   ];
 
   return (
-    <div className="card" style={{ marginTop: 16 }}>
-      <h2 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>
-        &#128218; Glossary
-      </h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+    <details className="card" style={{ marginTop: 16 }}>
+      <summary
+        className="cursor-pointer flex items-center gap-2"
+        style={{ listStyle: 'none' }}
+      >
+        <h2 className="text-lg font-bold inline-flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+          <span className="glossary-chevron inline-block transition-transform">&#9656;</span>
+          &#128218; Glossary
+          <span className="text-xs font-normal" style={{ color: 'var(--text-secondary)' }}>(click to expand)</span>
+        </h2>
+      </summary>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 mt-4">
         {terms.map((t) => (
           <div key={t.term} style={{ borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
             <span className="text-sm font-semibold" style={{ color: 'var(--accent-blue)' }}>
@@ -37,6 +44,14 @@ export default function Glossary() {
           </div>
         ))}
       </div>
-    </div>
+      <style>{`
+        details[open] .glossary-chevron {
+          transform: rotate(90deg);
+        }
+        summary::-webkit-details-marker {
+          display: none;
+        }
+      `}</style>
+    </details>
   );
 }

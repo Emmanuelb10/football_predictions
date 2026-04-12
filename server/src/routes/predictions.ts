@@ -46,7 +46,7 @@ router.get('/accumulators', async (req: Request, res: Response) => {
        JOIN teams at2 ON m.away_team_id = at2.id
        JOIN tournaments t ON m.tournament_id = t.id
        LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC, id DESC LIMIT 1) oh ON true
-       WHERE p.is_value_bet = true AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') = $1
+       WHERE DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') = $1
        ORDER BY p.confidence DESC`,
       [date]
     );

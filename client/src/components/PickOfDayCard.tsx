@@ -109,11 +109,15 @@ export default function PickOfDayCard({ data, loading }: PickOfDayCardProps) {
             <span style={{ color: 'var(--text-secondary)' }}>vs</span>
             <span className="text-lg font-bold">{pick.away_team}</span>
           </div>
-          {pick.status === 'finished' && (
-            <p className="text-xl font-bold mt-1" style={{ color: 'var(--accent-blue)' }}>
-              {pick.home_score} - {pick.away_score}
-            </p>
-          )}
+          {pick.status === 'finished' && (() => {
+            const actual = pick.home_score > pick.away_score ? '1' : pick.home_score < pick.away_score ? '2' : 'X';
+            const won = pick.tip === actual;
+            return (
+              <p className="text-xl font-bold mt-1" style={{ color: won ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+                {pick.home_score} - {pick.away_score} {won ? '\u2713' : '\u2717'}
+              </p>
+            );
+          })()}
         </div>
 
         <div className="flex flex-col gap-3">

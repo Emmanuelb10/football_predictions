@@ -144,40 +144,26 @@ export async function selectPickOfDay(date: string) {
 
   await PredictionModel.clearPickOfDay(date);
 
-  // Deterministic weighted-score algorithm
+  // Pick of the Day: highest win probability wins.
+  // Sort by confidence descending; ties broken by EV.
   const scored = candidates.map((vb: any) => {
-    const ev = Number(vb.expected_value) || 0;
-    const leagueHit = Number(vb.league_hit_ratio) || 0.5;
     const confidence = Number(vb.confidence) || 0;
-    const poisson = Number(vb.poisson_score) || 0;
-
     const tipOdds = vb.tip === '1' ? Number(vb.home_odds) :
                     vb.tip === 'X' ? Number(vb.draw_odds) : Number(vb.away_odds);
-    // Odds attractiveness: peaks at 1.72, drops toward edges of 1.50-1.99
-    const oddsAttractiveness = tipOdds ?
-      Math.max(0, 1 - Math.abs(tipOdds - 1.72) / 0.50) : 0;
-
-    const potdScore = (
-      0.30 * Math.min(Math.max(ev, 0) / 0.5, 1) +
-      0.25 * leagueHit +
-      0.20 * confidence +
-      0.15 * poisson +
-      0.10 * oddsAttractiveness
-    );
-
-    return { ...vb, potdScore, tipOdds };
+    return { ...vb, potdScore: confidence, tipOdds };
   });
 
-  scored.sort((a: any, b: any) => b.potdScore - a.potdScore);
+  scored.sort((a: any, b: any) => {
+    if (b.potdScore !== a.potdScore) return b.potdScore - a.potdScore;
+    return (Number(b.expected_value) || 0) - (Number(a.expected_value) || 0);
+  });
   const winner = scored[0];
 
-  // Generate reasoning from stats
   const tipLabel = winner.tip === '1' ? 'Home Win' : winner.tip === '2' ? 'Away Win' : 'Draw';
   const reasoning = `${winner.home_team} vs ${winner.away_team}: ${tipLabel} at ${(Number(winner.confidence) * 100).toFixed(0)}% confidence, odds ${winner.tipOdds?.toFixed(2) || 'N/A'}. ` +
     `EV: ${Number(winner.expected_value) > 0 ? '+' : ''}${(Number(winner.expected_value) * 100).toFixed(1)}%, ` +
-    `league hit ratio: ${(Number(winner.league_hit_ratio) * 100).toFixed(0)}%, ` +
     `Poisson: ${(Number(winner.poisson_score) * 100).toFixed(0)}%. ` +
-    `Top-ranked from ${scored.length} candidates.`;
+    `Highest probability from ${scored.length} qualifying matches.`;
 
   for (const s of scored) {
     const isPotd = s.id === winner.id;
@@ -187,6 +173,6 @@ export async function selectPickOfDay(date: string) {
     );
   }
 
-  logger.info(`Pick of the Day for ${date}: ${winner.home_team} vs ${winner.away_team} (score: ${winner.potdScore.toFixed(3)})`);
+  logger.info(`Pick of the Day for ${date}: ${winner.home_team} vs ${winner.away_team} (conf: ${(winner.potdScore * 100).toFixed(1)}%)`);
   return winner;
 }

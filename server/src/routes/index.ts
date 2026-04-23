@@ -57,6 +57,22 @@ router.post('/trigger/potd', async (req: Request, res: Response) => {
   }
 });
 
+// Manual trigger for EV Pick re-selection
+router.post('/trigger/ev-pick', async (req: Request, res: Response) => {
+  try {
+    const { selectEvPick } = await import('../services/predictionEngine');
+    const date = req.query.date as string || new Date().toISOString().slice(0, 10);
+    if (!isValidDateString(date)) {
+      res.status(400).json({ error: 'Invalid date', date });
+      return;
+    }
+    const result = await selectEvPick(date);
+    res.json({ status: 'ok', date, pick: result?.id || null });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Manual trigger for result sync
 router.post('/trigger/results', async (_req: Request, res: Response) => {
   try {

@@ -11,6 +11,7 @@ export interface Prediction {
   expected_value: number;
   is_value_bet: boolean;
   is_pick_of_day: boolean;
+  is_ev_pick: boolean;
   potd_rank_score: number | null;
   poisson_score: number | null;
   league_hit_ratio: number | null;
@@ -66,6 +67,35 @@ export async function findPickOfDay(date: string) {
 export async function clearPickOfDay(date: string) {
   return query(
     `UPDATE predictions SET is_pick_of_day = false
+     WHERE match_id IN (SELECT id FROM matches WHERE DATE(kickoff AT TIME ZONE 'Africa/Nairobi') = $1)`,
+    [date]
+  );
+}
+
+export async function findEvPick(date: string) {
+  const res = await query(
+    `SELECT m.id as match_id, m.kickoff, m.status, m.home_score, m.away_score,
+            ht.name as home_team, ht.logo_url as home_logo,
+            at2.name as away_team, at2.logo_url as away_logo,
+            t.name as tournament, p.*,
+            oh.home_odds, oh.draw_odds, oh.away_odds
+     FROM predictions p
+     JOIN matches m ON p.match_id = m.id
+     JOIN teams ht ON m.home_team_id = ht.id
+     JOIN teams at2 ON m.away_team_id = at2.id
+     JOIN tournaments t ON m.tournament_id = t.id
+     LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC, id DESC LIMIT 1) oh ON true
+     WHERE p.is_ev_pick = true
+       AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') = $1
+     LIMIT 1`,
+    [date]
+  );
+  return res.rows[0] || null;
+}
+
+export async function clearEvPick(date: string) {
+  return query(
+    `UPDATE predictions SET is_ev_pick = false
      WHERE match_id IN (SELECT id FROM matches WHERE DATE(kickoff AT TIME ZONE 'Africa/Nairobi') = $1)`,
     [date]
   );

@@ -1,5 +1,5 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
-import { fetchMatches, fetchPickOfDay, fetchPerformance, fetchDailyPL, fetchAccumulators, fetchSettled, fetchPotdHistory } from '../api/client';
+import { fetchMatches, fetchPickOfDay, fetchPerformance, fetchDailyPL, fetchAccumulators, fetchSettled, fetchPotdHistory, fetchEvPick, fetchEvPickHistory } from '../api/client';
 import { todayString } from '../lib/routing';
 
 export function useMatches(date: string) {
@@ -67,6 +67,25 @@ export function usePotdHistory() {
   return useQuery({
     queryKey: ['potd-history'],
     queryFn: () => fetchPotdHistory(30),
+    refetchInterval: 300000,
+  });
+}
+
+export function useEvPick(date: string) {
+  return useQuery({
+    queryKey: ['ev-pick', date],
+    queryFn: () => fetchEvPick(date),
+    enabled: !!date,
+    refetchInterval: 90000,
+    staleTime: 600000,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useEvPickHistory() {
+  return useQuery({
+    queryKey: ['ev-pick-history'],
+    queryFn: () => fetchEvPickHistory(30),
     refetchInterval: 300000,
   });
 }

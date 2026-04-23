@@ -215,6 +215,7 @@ export async function ingestFixtures(targetDate?: string) {
 
     // Step 3: Pick of the Day
     await predictionEngine.selectPickOfDay(today);
+    await predictionEngine.selectEvPick(today);
 
     logger.info('Fixture ingestion complete');
   } catch (error: any) {

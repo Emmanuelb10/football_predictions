@@ -144,18 +144,18 @@ export async function selectPickOfDay(date: string) {
 
   await PredictionModel.clearPickOfDay(date);
 
-  // Pick of the Day: highest win probability wins.
-  // Sort by confidence descending; ties broken by EV.
+  // Pick of the Day: highest EV wins.
+  // Sort by expected value descending; ties broken by confidence.
   const scored = candidates.map((vb: any) => {
-    const confidence = Number(vb.confidence) || 0;
+    const ev = Number(vb.expected_value) || 0;
     const tipOdds = vb.tip === '1' ? Number(vb.home_odds) :
                     vb.tip === 'X' ? Number(vb.draw_odds) : Number(vb.away_odds);
-    return { ...vb, potdScore: confidence, tipOdds };
+    return { ...vb, potdScore: ev, tipOdds };
   });
 
   scored.sort((a: any, b: any) => {
     if (b.potdScore !== a.potdScore) return b.potdScore - a.potdScore;
-    return (Number(b.expected_value) || 0) - (Number(a.expected_value) || 0);
+    return (Number(b.confidence) || 0) - (Number(a.confidence) || 0);
   });
   const winner = scored[0];
 
@@ -163,7 +163,7 @@ export async function selectPickOfDay(date: string) {
   const reasoning = `${winner.home_team} vs ${winner.away_team}: ${tipLabel} at ${(Number(winner.confidence) * 100).toFixed(0)}% confidence, odds ${winner.tipOdds?.toFixed(2) || 'N/A'}. ` +
     `EV: ${Number(winner.expected_value) > 0 ? '+' : ''}${(Number(winner.expected_value) * 100).toFixed(1)}%, ` +
     `Poisson: ${(Number(winner.poisson_score) * 100).toFixed(0)}%. ` +
-    `Highest probability from ${scored.length} qualifying matches.`;
+    `Highest EV from ${scored.length} qualifying matches.`;
 
   for (const s of scored) {
     const isPotd = s.id === winner.id;
@@ -173,6 +173,64 @@ export async function selectPickOfDay(date: string) {
     );
   }
 
-  logger.info(`Pick of the Day for ${date}: ${winner.home_team} vs ${winner.away_team} (conf: ${(winner.potdScore * 100).toFixed(1)}%)`);
+  logger.info(`Pick of the Day for ${date}: ${winner.home_team} vs ${winner.away_team} (EV: ${(winner.potdScore * 100).toFixed(1)}%)`);
+  return winner;
+}
+
+export async function selectEvPick(date: string) {
+  const res = await query(
+    `SELECT p.*, ht.name as home_team, at2.name as away_team, t.name as league,
+            TO_CHAR(m.kickoff AT TIME ZONE 'Africa/Nairobi', 'HH24:MI') as kickoff_time,
+            oh.home_odds, oh.draw_odds, oh.away_odds
+     FROM predictions p
+     JOIN matches m ON p.match_id = m.id
+     JOIN teams ht ON m.home_team_id = ht.id
+     JOIN teams at2 ON m.away_team_id = at2.id
+     JOIN tournaments t ON m.tournament_id = t.id
+     LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC, id DESC LIMIT 1) oh ON true
+     WHERE DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') = $1`,
+    [date]
+  );
+
+  // Same candidate pool as POTD: must pass qualifiesByOdds
+  const qualified = res.rows.filter((c: any) => qualifiesByOdds(
+    c.tip as Tip,
+    c.home_odds != null ? Number(c.home_odds) : null,
+    c.draw_odds != null ? Number(c.draw_odds) : null,
+    c.away_odds != null ? Number(c.away_odds) : null,
+    Number(c.confidence),
+  ));
+
+  // Additional filter: EV > 20%
+  const candidates = qualified.filter((c: any) => Number(c.expected_value) >= 0.20);
+
+  await PredictionModel.clearEvPick(date);
+
+  if (candidates.length === 0) {
+    logger.info(`No EV pick candidates (EV >= 20%) for ${date}`);
+    return null;
+  }
+
+  // Sort by EV descending, tiebreak by confidence
+  candidates.sort((a: any, b: any) => {
+    const evDiff = Number(b.expected_value) - Number(a.expected_value);
+    if (evDiff !== 0) return evDiff;
+    return (Number(b.confidence) || 0) - (Number(a.confidence) || 0);
+  });
+
+  const winner = candidates[0];
+  const tipOdds = winner.tip === '1' ? Number(winner.home_odds) :
+                  winner.tip === 'X' ? Number(winner.draw_odds) : Number(winner.away_odds);
+  const tipLabel = winner.tip === '1' ? 'Home Win' : winner.tip === '2' ? 'Away Win' : 'Draw';
+  const reasoning = `${winner.home_team} vs ${winner.away_team}: ${tipLabel} at ${(Number(winner.confidence) * 100).toFixed(0)}% confidence, odds ${tipOdds?.toFixed(2) || 'N/A'}. ` +
+    `EV: ${Number(winner.expected_value) > 0 ? '+' : ''}${(Number(winner.expected_value) * 100).toFixed(1)}%. ` +
+    `Selected as EV Pick: highest expected value (${(Number(winner.expected_value) * 100).toFixed(1)}%) from ${candidates.length} candidates with EV above 20%.`;
+
+  await query(
+    'UPDATE predictions SET is_ev_pick = true, reasoning = CASE WHEN reasoning = $2 OR reasoning = \'\' THEN $2 ELSE reasoning END WHERE id = $1',
+    [winner.id, reasoning]
+  );
+
+  logger.info(`EV Pick for ${date}: ${winner.home_team} vs ${winner.away_team} (EV: ${(Number(winner.expected_value) * 100).toFixed(1)}%)`);
   return winner;
 }

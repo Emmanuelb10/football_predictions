@@ -59,3 +59,13 @@ export async function fetchPotdHistory(days: number = 30) {
   const { data } = await api.get(`/predictions/potd-history?days=${days}`);
   return data;
 }
+
+export async function fetchEvPick(date: string) {
+  const { data } = await api.get(`/predictions/ev-pick?date=${date}`);
+  return data;
+}
+
+export async function fetchEvPickHistory(days: number = 30) {
+  const { data } = await api.get(`/predictions/ev-pick-history?days=${days}`);
+  return data;
+}

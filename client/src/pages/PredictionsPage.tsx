@@ -3,12 +3,14 @@ import { useNavigate, useParams } from 'react-router-dom';
 import DatePicker from '../components/DatePicker';
 import PickOfDayCard from '../components/PickOfDayCard';
 import MatchTable from '../components/MatchTable';
-import DailyPLBanner from '../components/DailyPLBanner';
+
 import AccumulatorCard from '../components/AccumulatorCard';
 import PotdHistory from '../components/PotdHistory';
+import EvPickCard from '../components/EvPickCard';
+import EvPickHistory from '../components/EvPickHistory';
 import Glossary from '../components/Glossary';
 import { useToast } from '../components/ToastContainer';
-import { useMatches, usePickOfDay, useDailyPL, useAccumulators, useSettled, usePotdHistory } from '../hooks/useMatches';
+import { useMatches, usePickOfDay, useAccumulators, useSettled, usePotdHistory, useEvPick, useEvPickHistory } from '../hooks/useMatches';
 import { isValidDateParam } from '../lib/routing';
 import NotFound from './NotFound';
 
@@ -25,10 +27,14 @@ export default function PredictionsPage() {
   const { data: pickData, isLoading: pickLoading } = usePickOfDay(
     matchData?.matches?.length !== undefined ? date : ''
   );
-  const { data: dailyPL } = useDailyPL(date);
+
   const { data: accData } = useAccumulators(matchData?.matches?.length ? date : '');
   const { data: settledData } = useSettled();
   const { data: potdHistoryData } = usePotdHistory();
+  const { data: evPickData, isLoading: evPickLoading } = useEvPick(
+    matchData?.matches?.length !== undefined ? date : ''
+  );
+  const { data: evPickHistoryData } = useEvPickHistory();
   const { addToast } = useToast();
 
   const settledIds = useMemo(() => {
@@ -84,6 +90,7 @@ export default function PredictionsPage() {
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-4">
         <PickOfDayCard data={pickData} loading={pickLoading} />
+        <EvPickCard data={evPickData} loading={evPickLoading} />
         <MatchTable
           matches={matchData?.matches || []}
           loading={matchesLoading}
@@ -91,9 +98,10 @@ export default function PredictionsPage() {
           isFetching={isFetching}
           settledIds={settledIds}
         />
-        <DailyPLBanner data={dailyPL} />
+
         <AccumulatorCard data={accData} />
         <PotdHistory data={potdHistoryData} />
+        <EvPickHistory data={evPickHistoryData} />
         <Glossary />
       </main>
     </div>

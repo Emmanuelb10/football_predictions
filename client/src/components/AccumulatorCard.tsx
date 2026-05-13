@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import InfoTip from './InfoTip';
 
 interface Pick {
@@ -42,9 +43,20 @@ export default function AccumulatorCard({ data }: AccumulatorCardProps) {
 
   return (
     <div className="card">
-      <h2 className="text-lg font-bold mb-3" style={{ color: 'var(--text-primary)' }}>
-        &#127922; Accumulator Suggestions<InfoTip text="A multi-bet combining several picks. All legs must win. Combined odds = odds multiplied together" />
-      </h2>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+          &#127922; Accumulator Suggestions<InfoTip text="A multi-bet combining several picks. All legs must win. Combined odds = odds multiplied together" />
+        </h2>
+        <Link
+          to="/accumulator-history"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs font-medium px-2.5 py-1 rounded-lg"
+          style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+        >
+          View History &rarr;
+        </Link>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {data.accumulators.slice(0, 3).map((acc, i) => {
           const evColor = acc.combinedEV > 0.3 ? 'var(--accent-green)' : acc.combinedEV > 0 ? 'var(--accent-yellow)' : 'var(--accent-red)';

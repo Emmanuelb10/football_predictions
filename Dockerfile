@@ -11,7 +11,7 @@ RUN npx tsc
 FROM node:22-slim AS client-build
 WORKDIR /app/client
 COPY client/package*.json ./
-RUN npm ci
+RUN npm ci && npm rebuild lightningcss
 COPY client/ ./
 RUN npx vite build
 

@@ -65,7 +65,12 @@ export async function fetchEvPick(date: string) {
   return data;
 }
 
-export async function fetchEvPickHistory(days: number = 30) {
-  const { data } = await api.get(`/predictions/ev-pick-history?days=${days}`);
+export async function fetchEvPickHistory() {
+  const { data } = await api.get('/predictions/ev-pick-history');
+  return data;
+}
+
+export async function fetchAccumulatorHistory(days: number = 30) {
+  const { data } = await api.get(`/predictions/accumulator-history?days=${days}`);
   return data;
 }

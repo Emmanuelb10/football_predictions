@@ -152,6 +152,109 @@ router.get('/accumulators', async (req: Request, res: Response) => {
   }
 });
 
+// Accumulator history: best accumulators per date across a date range
+router.get('/accumulator-history', async (req: Request, res: Response) => {
+  try {
+    const days = parseInt(req.query.days as string) || 30;
+    const today = dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
+    const since = dayjs().tz('Africa/Nairobi').subtract(days, 'day').format('YYYY-MM-DD');
+
+    const result = await query(
+      `SELECT p.match_id, p.tip, p.confidence, p.expected_value,
+              ht.name as home_team, at2.name as away_team, t.name as tournament,
+              m.status, m.home_score, m.away_score,
+              DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') as match_date,
+              oh.home_odds, oh.draw_odds, oh.away_odds
+       FROM predictions p
+       JOIN matches m ON p.match_id = m.id
+       JOIN teams ht ON m.home_team_id = ht.id
+       JOIN teams at2 ON m.away_team_id = at2.id
+       JOIN tournaments t ON m.tournament_id = t.id
+       LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC, id DESC LIMIT 1) oh ON true
+       WHERE DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') >= $1
+         AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') <= $2
+       ORDER BY m.kickoff DESC, p.confidence DESC`,
+      [since, today]
+    );
+
+    // Group rows by date
+    const dateGroups = new Map<string, any[]>();
+    for (const r of result.rows) {
+      const dateStr = dayjs(r.match_date).format('YYYY-MM-DD');
+      if (!dateGroups.has(dateStr)) dateGroups.set(dateStr, []);
+      dateGroups.get(dateStr)!.push(r);
+    }
+
+    const history: any[] = [];
+
+    for (const [dateStr, rows] of dateGroups.entries()) {
+      const conformingRows = rows.filter((r: any) => qualifiesByOdds(
+        r.tip as Tip,
+        r.home_odds != null ? Number(r.home_odds) : null,
+        r.draw_odds != null ? Number(r.draw_odds) : null,
+        r.away_odds != null ? Number(r.away_odds) : null,
+        Number(r.confidence),
+      ));
+
+      const picks = conformingRows.map((r: any) => {
+        const odds = r.tip === '1' ? Number(r.home_odds) : r.tip === 'X' ? Number(r.draw_odds) : Number(r.away_odds);
+        let pickResult: 'pending' | 'won' | 'lost' = 'pending';
+        if (r.status === 'finished') {
+          const actual = r.home_score > r.away_score ? '1' : r.home_score < r.away_score ? '2' : 'X';
+          pickResult = r.tip === actual ? 'won' : 'lost';
+        }
+        return {
+          matchId: r.match_id, homeTeam: r.home_team, awayTeam: r.away_team,
+          tournament: r.tournament, tip: r.tip, confidence: Number(r.confidence),
+          odds: odds || 1.8, result: pickResult,
+          score: r.status === 'finished' ? `${r.home_score}-${r.away_score}` : null,
+        };
+      });
+
+      if (picks.length < 2) continue;
+
+      const accumulators: any[] = [];
+      for (let size = 2; size <= Math.min(4, picks.length); size++) {
+        const combos = getCombinations(picks, size);
+        for (const combo of combos) {
+          const combinedOdds = combo.reduce((acc: number, p: any) => acc * p.odds, 1);
+          const combinedProb = combo.reduce((acc: number, p: any) => acc * p.confidence, 1);
+          const combinedEV = combinedProb * combinedOdds - 1;
+          const leagues = new Set(combo.map((p: any) => p.tournament));
+          const diversityScore = leagues.size / combo.length;
+          const allSettled = combo.every((p: any) => p.result !== 'pending');
+          const allWon = combo.every((p: any) => p.result === 'won');
+          const anyLost = combo.some((p: any) => p.result === 'lost');
+          const accResult: 'pending' | 'won' | 'lost' = anyLost ? 'lost' : allSettled && allWon ? 'won' : 'pending';
+          const payout = accResult === 'won' ? +combinedOdds.toFixed(2) : accResult === 'lost' ? -1 : 0;
+
+          accumulators.push({
+            picks: combo, size,
+            combinedOdds: +combinedOdds.toFixed(2), combinedProb: +combinedProb.toFixed(4),
+            combinedEV: +combinedEV.toFixed(4), diversityScore: +diversityScore.toFixed(2),
+            result: accResult, payout,
+          });
+        }
+      }
+
+      accumulators.sort((a, b) => b.combinedEV - a.combinedEV);
+      const bestPerSize: any[] = [];
+      const usedSizes = new Set<number>();
+      for (const acc of accumulators) {
+        if (!usedSizes.has(acc.size)) { usedSizes.add(acc.size); bestPerSize.push(acc); }
+        if (bestPerSize.length >= 3) break;
+      }
+      bestPerSize.sort((a, b) => a.size - b.size);
+      history.push({ date: dateStr, accumulators: bestPerSize });
+    }
+
+    history.sort((a, b) => b.date.localeCompare(a.date));
+    res.json({ history });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POTD history: every day's pick with result
 router.get('/potd-history', async (req: Request, res: Response) => {
   try {
@@ -233,7 +336,6 @@ router.get('/potd-history', async (req: Request, res: Response) => {
 
 router.get('/ev-pick-history', async (req: Request, res: Response) => {
   try {
-    const days = parseInt(req.query.days as string) || 30;
     const result = await query(
       `SELECT DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') as date,
               TO_CHAR(m.kickoff AT TIME ZONE 'Africa/Nairobi', 'HH24:MI') as kickoff_time,
@@ -249,10 +351,9 @@ router.get('/ev-pick-history', async (req: Request, res: Response) => {
        JOIN teams at2 ON m.away_team_id = at2.id
        JOIN tournaments t ON m.tournament_id = t.id
        LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC LIMIT 1) oh ON true
-       WHERE p.is_ev_pick = true AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') >= $2
-       ORDER BY m.kickoff DESC
-       LIMIT $1`,
-      [days, LAUNCH_DATE]
+       WHERE p.is_ev_pick = true AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') >= $1
+       ORDER BY m.kickoff DESC`,
+      [LAUNCH_DATE]
     );
 
     const picksByDate = new Map<string, any>();
@@ -283,8 +384,7 @@ router.get('/ev-pick-history', async (req: Request, res: Response) => {
     }
 
     const history = Array.from(picksByDate.values())
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .slice(0, days);
+      .sort((a, b) => b.date.localeCompare(a.date));
 
     const withPicks = history.filter((h: any) => h.outcome !== 'none');
     const settled = withPicks.filter((h: any) => h.outcome === 'won' || h.outcome === 'lost');

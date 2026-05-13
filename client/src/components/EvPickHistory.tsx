@@ -49,6 +49,8 @@ interface MonthGroup {
   losses: number;
   hitRatio: number;
   totalPLKes: number;
+  totalStaked: number;
+  roi: number;
 }
 
 const BASE_STAKE = 1000;
@@ -108,6 +110,7 @@ function groupByMonth(history: EvPickEntry[]): MonthGroup[] {
     const wins = settledEntries.filter(e => e.outcome === 'won').length;
     const losses = settledEntries.length - wins;
     const hitRatio = settledEntries.length > 0 ? wins / settledEntries.length : 0;
+    const totalStaked = settledEntries.reduce((sum, e) => sum + e.stake, 0);
 
     groups.push({
       month,
@@ -119,6 +122,8 @@ function groupByMonth(history: EvPickEntry[]): MonthGroup[] {
       losses,
       hitRatio,
       totalPLKes: runningPL,
+      totalStaked,
+      roi: totalStaked > 0 ? runningPL / totalStaked : 0,
     });
   }
 
@@ -134,6 +139,8 @@ export default function EvPickHistory({ data }: EvPickHistoryProps) {
 
   const { summary } = data;
   const totalPLKes = monthGroups.reduce((sum, g) => sum + g.totalPLKes, 0);
+  const totalStaked = monthGroups.reduce((sum, g) => sum + g.totalStaked, 0);
+  const overallRoi = totalStaked > 0 ? totalPLKes / totalStaked : 0;
 
   return (
     <div className="card">
@@ -143,7 +150,7 @@ export default function EvPickHistory({ data }: EvPickHistoryProps) {
           <InfoTip text="Martingale staking: KSh 1,000 base stake. On loss, next stake is 3x. On win, reset to KSh 1,000. Resets each month." />
         </h2>
         {summary.settled > 0 && (
-          <div className="flex items-center gap-4 text-sm">
+          <div className="flex items-center gap-4 text-sm flex-wrap">
             <span>
               <span style={{ color: 'var(--accent-green)', fontWeight: 700 }}>{summary.wins}W</span>
               <span style={{ color: 'var(--text-secondary)' }}> - </span>
@@ -156,6 +163,12 @@ export default function EvPickHistory({ data }: EvPickHistoryProps) {
             </span>
             <span style={{ color: totalPLKes >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>
               {formatAmount(totalPLKes)}
+            </span>
+            <span style={{ color: 'var(--text-secondary)' }}>
+              Staked: <span style={{ fontWeight: 700 }}>{totalStaked.toLocaleString('en-KE')}</span>
+            </span>
+            <span style={{ color: overallRoi >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>
+              ROI: {overallRoi >= 0 ? '+' : ''}{(overallRoi * 100).toFixed(1)}%
             </span>
           </div>
         )}
@@ -185,6 +198,12 @@ export default function EvPickHistory({ data }: EvPickHistoryProps) {
                     </span>
                     <span style={{ color: g.totalPLKes >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>
                       {formatAmount(g.totalPLKes)}
+                    </span>
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      Staked: <span style={{ fontWeight: 700 }}>{g.totalStaked.toLocaleString('en-KE')}</span>
+                    </span>
+                    <span style={{ color: g.roi >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>
+                      ROI: {g.roi >= 0 ? '+' : ''}{(g.roi * 100).toFixed(1)}%
                     </span>
                   </>
                 )}

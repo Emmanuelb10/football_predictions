@@ -33,19 +33,40 @@ interface PotdHistoryProps {
   } | undefined;
 }
 
+interface EntryWithStake extends PotdEntry {
+  stake: number;
+  plKes: number;     // profit/loss for this bet in KES
+  balanceKes: number; // running balance after this bet
+}
+
 interface MonthGroup {
-  month: string;        // YYYY-MM
-  label: string;        // "April 2026"
-  entries: PotdEntry[];
+  month: string;
+  label: string;
+  entries: EntryWithStake[];
   total: number;
   settled: number;
   wins: number;
   losses: number;
   hitRatio: number;
-  totalProfit: number;
+  totalPLKes: number;
+  totalStaked: number;
+  roi: number;
 }
 
+const BASE_STAKE = 1000;
+const LOSS_MULTIPLIER = 3;
+
 const tipLabel = (t: string) => (t === '1' ? 'H' : t === '2' ? 'A' : 'D');
+
+function formatAmount(amount: number): string {
+  const abs = Math.abs(amount);
+  const formatted = abs >= 1000
+    ? abs.toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+    : abs.toFixed(0);
+  if (amount > 0) return `+${formatted}`;
+  if (amount < 0) return `-${formatted}`;
+  return '0';
+}
 
 function groupByMonth(history: PotdEntry[]): MonthGroup[] {
   const map = new Map<string, PotdEntry[]>();
@@ -54,25 +75,62 @@ function groupByMonth(history: PotdEntry[]): MonthGroup[] {
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(h);
   }
+
   const groups: MonthGroup[] = [];
-  for (const [month, entries] of map.entries()) {
+  for (const [month, rawEntries] of map.entries()) {
+    // Sort chronologically (oldest first) for Martingale stake tracking
+    const sorted = [...rawEntries].sort((a, b) => a.date.localeCompare(b.date));
+
+    let stake = BASE_STAKE;
+    let runningPL = 0;
+    const entries: EntryWithStake[] = sorted.map((e) => {
+      const isVoid = e.outcome === 'pending' && (e.status === 'cancelled' || e.status === 'postponed');
+
+      if (e.outcome === 'won') {
+        const pl = Math.round(stake * (e.odds - 1));
+        runningPL += pl;
+        const entry: EntryWithStake = { ...e, stake, plKes: pl, balanceKes: runningPL };
+        stake = BASE_STAKE; // reset after win
+        return entry;
+      } else if (e.outcome === 'lost') {
+        const pl = -stake;
+        runningPL += pl;
+        const entry: EntryWithStake = { ...e, stake, plKes: pl, balanceKes: runningPL };
+        stake = stake * LOSS_MULTIPLIER; // 3x next stake
+        return entry;
+      } else if (isVoid) {
+        // Void bets: no stake change, no P&L
+        return { ...e, stake: 0, plKes: 0, balanceKes: runningPL };
+      } else {
+        // Pending: show upcoming stake but no P&L yet
+        return { ...e, stake, plKes: 0, balanceKes: runningPL };
+      }
+    });
+
+    // Reverse back to newest-first for display
+    entries.reverse();
+
     const settledEntries = entries.filter(e => e.outcome === 'won' || e.outcome === 'lost');
     const wins = settledEntries.filter(e => e.outcome === 'won').length;
     const losses = settledEntries.length - wins;
     const hitRatio = settledEntries.length > 0 ? wins / settledEntries.length : 0;
-    const totalProfit = settledEntries.reduce((sum, e) => sum + e.profit, 0);
+    const totalStaked = settledEntries.reduce((sum, e) => sum + e.stake, 0);
+
     groups.push({
       month,
       label: dayjs(month + '-01').format('MMMM YYYY'),
       entries,
-      total: entries.length,
+      total: rawEntries.length,
       settled: settledEntries.length,
       wins,
       losses,
       hitRatio,
-      totalProfit: +totalProfit.toFixed(2),
+      totalPLKes: runningPL,
+      totalStaked,
+      roi: totalStaked > 0 ? runningPL / totalStaked : 0,
     });
   }
+
   groups.sort((a, b) => b.month.localeCompare(a.month));
   return groups;
 }
@@ -84,16 +142,19 @@ export default function PotdHistory({ data }: PotdHistoryProps) {
   if (!data || history.length === 0) return null;
 
   const { summary } = data;
+  const totalPLKes = monthGroups.reduce((sum, g) => sum + g.totalPLKes, 0);
+  const totalStaked = monthGroups.reduce((sum, g) => sum + g.totalStaked, 0);
+  const overallRoi = totalStaked > 0 ? totalPLKes / totalStaked : 0;
 
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
           &#127942; Pick of the Day History
-          <InfoTip text="Track record of every day's Pick of the Day selection and its result. Grouped by month — click a month to expand." />
+          <InfoTip text="Martingale staking: KSh 100 base stake. On loss, next stake is 3x. On win, reset to KSh 100. Resets each month." />
         </h2>
         {summary.settled > 0 && (
-          <div className="flex items-center gap-4 text-sm">
+          <div className="flex items-center gap-4 text-sm flex-wrap">
             <span>
               <span style={{ color: 'var(--accent-green)', fontWeight: 700 }}>{summary.wins}W</span>
               <span style={{ color: 'var(--text-secondary)' }}> - </span>
@@ -104,8 +165,14 @@ export default function PotdHistory({ data }: PotdHistoryProps) {
                 {(summary.hitRatio * 100).toFixed(0)}%
               </span>
             </span>
-            <span style={{ color: summary.totalProfit >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>
-              {summary.totalProfit >= 0 ? '+' : ''}{summary.totalProfit}u
+            <span style={{ color: totalPLKes >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>
+              {formatAmount(totalPLKes)}
+            </span>
+            <span style={{ color: 'var(--text-secondary)' }}>
+              Staked: <span style={{ fontWeight: 700 }}>{totalStaked.toLocaleString('en-KE')}</span>
+            </span>
+            <span style={{ color: overallRoi >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>
+              ROI: {overallRoi >= 0 ? '+' : ''}{(overallRoi * 100).toFixed(1)}%
             </span>
           </div>
         )}
@@ -133,8 +200,14 @@ export default function PotdHistory({ data }: PotdHistoryProps) {
                         {(g.hitRatio * 100).toFixed(0)}%
                       </span>
                     </span>
-                    <span style={{ color: g.totalProfit >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>
-                      {g.totalProfit >= 0 ? '+' : ''}{g.totalProfit}u
+                    <span style={{ color: g.totalPLKes >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>
+                      {formatAmount(g.totalPLKes)}
+                    </span>
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      Staked: <span style={{ fontWeight: 700 }}>{g.totalStaked.toLocaleString('en-KE')}</span>
+                    </span>
+                    <span style={{ color: g.roi >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>
+                      ROI: {g.roi >= 0 ? '+' : ''}{(g.roi * 100).toFixed(1)}%
                     </span>
                   </>
                 )}
@@ -149,12 +222,13 @@ export default function PotdHistory({ data }: PotdHistoryProps) {
                     <th className="text-left py-2 px-2 font-medium">Match</th>
                     <th className="text-left py-2 px-2 font-medium">League</th>
                     <th className="text-center py-2 px-2 font-medium">Tip</th>
-                    <th className="text-center py-2 px-2 font-medium">Prob</th>
                     <th className="text-center py-2 px-2 font-medium">Odds</th>
                     <th className="text-center py-2 px-2 font-medium">EV</th>
                     <th className="text-center py-2 px-2 font-medium">Score</th>
                     <th className="text-center py-2 px-2 font-medium">Result</th>
-                    <th className="text-center py-2 px-2 font-medium">P&L</th>
+                    <th className="text-right py-2 px-2 font-medium">Stake</th>
+                    <th className="text-right py-2 px-2 font-medium">P&L</th>
+                    <th className="text-right py-2 px-2 font-medium">Balance</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -167,6 +241,7 @@ export default function PotdHistory({ data }: PotdHistoryProps) {
                       : 'var(--text-secondary)';
                     const dateStr = new Date(h.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                     const dayStr = new Date(h.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+                    const isSettled = h.outcome === 'won' || h.outcome === 'lost';
                     return (
                       <tr
                         key={i}
@@ -190,9 +265,6 @@ export default function PotdHistory({ data }: PotdHistoryProps) {
                         </td>
                         <td className="py-2.5 px-2 text-center">
                           <span className="badge badge-green">{tipLabel(h.tip)}</span>
-                        </td>
-                        <td className="py-2.5 px-2 text-center font-semibold" style={{ color: 'var(--accent-green)' }}>
-                          {(h.confidence * 100).toFixed(0)}%
                         </td>
                         <td className="py-2.5 px-2 text-center font-mono text-xs"
                           style={{ color: h.odds >= 1.5 && h.odds <= 2.0 ? 'var(--accent-green)' : 'var(--text-secondary)', fontWeight: h.odds >= 1.5 && h.odds <= 2.0 ? 700 : 400 }}>
@@ -220,8 +292,14 @@ export default function PotdHistory({ data }: PotdHistoryProps) {
                             {h.outcome === 'won' ? 'WON' : h.outcome === 'lost' ? 'LOST' : isVoid ? voidLabel : 'PENDING'}
                           </span>
                         </td>
-                        <td className="py-2.5 px-2 text-center font-bold text-sm" style={{ color: outcomeColor }}>
-                          {h.outcome === 'pending' ? '-' : `${h.profit > 0 ? '+' : ''}${h.profit.toFixed(2)}u`}
+                        <td className="py-2.5 px-2 text-right font-mono text-xs" style={{ color: h.stake > BASE_STAKE ? 'var(--accent-red)' : 'var(--text-secondary)' }}>
+                          {isVoid ? '-' : h.stake.toLocaleString('en-KE')}
+                        </td>
+                        <td className="py-2.5 px-2 text-right font-bold text-sm" style={{ color: outcomeColor }}>
+                          {isSettled ? formatAmount(h.plKes) : '-'}
+                        </td>
+                        <td className="py-2.5 px-2 text-right font-bold text-sm" style={{ color: h.balanceKes >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+                          {isSettled || isVoid ? formatAmount(h.balanceKes) : '-'}
                         </td>
                       </tr>
                     );

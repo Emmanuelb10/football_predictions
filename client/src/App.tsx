@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import PredictionsPage from './pages/PredictionsPage';
+import AccumulatorHistoryPage from './pages/AccumulatorHistoryPage';
 import NotFound from './pages/NotFound';
 import { todayPath } from './lib/routing';
 
@@ -13,6 +14,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<RedirectToToday />} />
+      <Route path="/accumulator-history" element={<AccumulatorHistoryPage />} />
       <Route path="/:date" element={<PredictionsPage />} />
       <Route path="*" element={<NotFound />} />
     </Routes>

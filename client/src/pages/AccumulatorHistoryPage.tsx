@@ -29,6 +29,8 @@ interface DayEntry {
   accumulators: Accumulator[];
 }
 
+const STAKE = 1000;
+
 const tipLabel = (t: string) => (t === '1' ? 'Home' : t === '2' ? 'Away' : 'Draw');
 const pickResultIcon = (r: string) => r === 'won' ? '\u2713' : r === 'lost' ? '\u2717' : '\u2022';
 
@@ -38,42 +40,59 @@ const resultColors = {
   pending: { bg: 'var(--bg-primary)', border: 'var(--border)', text: 'var(--text-secondary)' },
 };
 
-function formatAmount(n: number): string {
+function formatKes(n: number): string {
   const abs = Math.abs(n);
   const formatted = abs >= 1000
     ? abs.toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-    : abs.toFixed(2);
+    : abs.toFixed(0);
   if (n > 0) return `+${formatted}`;
   if (n < 0) return `-${formatted}`;
   return '0';
+}
+
+function accPL(acc: Accumulator): number {
+  if (acc.result === 'won') return Math.round(STAKE * (acc.combinedOdds - 1));
+  if (acc.result === 'lost') return -STAKE;
+  return 0;
+}
+
+interface MonthStats {
+  total: number;
+  settled: number;
+  wins: number;
+  losses: number;
+  totalStaked: number;
+  totalPL: number;
+  hitRatio: number;
+  roi: number;
 }
 
 export default function AccumulatorHistoryPage() {
   const { data, isLoading } = useAccumulatorHistory();
   const history: DayEntry[] = data?.history ?? [];
 
-  const stats = useMemo(() => {
-    let total = 0, settled = 0, wins = 0, losses = 0, totalPayout = 0, totalStaked = 0;
-    for (const day of history) {
+  const computeStats = (days: DayEntry[]): MonthStats => {
+    let total = 0, settled = 0, wins = 0, losses = 0, totalPL = 0;
+    for (const day of days) {
       for (const acc of day.accumulators) {
         total++;
         if (acc.result === 'won' || acc.result === 'lost') {
           settled++;
-          totalStaked += 1; // 1 unit per accumulator
-          totalPayout += acc.payout;
+          totalPL += accPL(acc);
           if (acc.result === 'won') wins++;
           else losses++;
         }
       }
     }
+    const totalStaked = settled * STAKE;
     return {
-      total, settled, wins, losses,
+      total, settled, wins, losses, totalStaked, totalPL,
       hitRatio: settled > 0 ? wins / settled : 0,
-      totalPL: totalPayout,
-      totalStaked,
-      roi: totalStaked > 0 ? totalPayout / totalStaked : 0,
+      roi: totalStaked > 0 ? totalPL / totalStaked : 0,
     };
-  }, [history]);
+  };
+
+  const stats = useMemo(() => computeStats(history), [history]);
 
   // Group by month
   const monthGroups = useMemo(() => {
@@ -83,11 +102,10 @@ export default function AccumulatorHistoryPage() {
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(day);
     }
-    const groups = Array.from(map.entries()).map(([month, days]) => ({
-      month,
-      label: dayjs(month + '-01').format('MMMM YYYY'),
-      days,
-    }));
+    const groups = Array.from(map.entries()).map(([month, days]) => {
+      const ms = computeStats(days);
+      return { month, label: dayjs(month + '-01').format('MMMM YYYY'), days, stats: ms };
+    });
     groups.sort((a, b) => b.month.localeCompare(a.month));
     return groups;
   }, [history]);
@@ -149,10 +167,10 @@ export default function AccumulatorHistoryPage() {
                         </span>
                       </span>
                       <span style={{ color: stats.totalPL >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>
-                        P&L: {formatAmount(stats.totalPL)}u
+                        P&L: {formatKes(stats.totalPL)}
                       </span>
                       <span style={{ color: 'var(--text-secondary)' }}>
-                        Staked: <span style={{ fontWeight: 700 }}>{stats.totalStaked}u</span>
+                        Staked: <span style={{ fontWeight: 700 }}>{stats.totalStaked.toLocaleString('en-KE')}</span>
                       </span>
                       <span style={{ color: stats.roi >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>
                         ROI: {stats.roi >= 0 ? '+' : ''}{(stats.roi * 100).toFixed(1)}%
@@ -172,8 +190,26 @@ export default function AccumulatorHistoryPage() {
                     style={{ background: 'var(--bg-primary)', listStyle: 'none' }}
                   >
                     <span className="font-semibold text-sm">{mg.label}</span>
-                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                      {mg.days.length} day{mg.days.length !== 1 ? 's' : ''}
+                    <span className="flex items-center gap-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                      <span>{mg.stats.total} acca{mg.stats.total !== 1 ? 's' : ''}</span>
+                      {mg.stats.settled > 0 && (
+                        <>
+                          <span>
+                            <span style={{ color: 'var(--accent-green)', fontWeight: 700 }}>{mg.stats.wins}W</span>
+                            <span> - </span>
+                            <span style={{ color: 'var(--accent-red)', fontWeight: 700 }}>{mg.stats.losses}L</span>
+                          </span>
+                          <span style={{ color: mg.stats.totalPL >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>
+                            {formatKes(mg.stats.totalPL)}
+                          </span>
+                          <span>
+                            Staked: <span style={{ fontWeight: 700 }}>{mg.stats.totalStaked.toLocaleString('en-KE')}</span>
+                          </span>
+                          <span style={{ color: mg.stats.roi >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>
+                            ROI: {mg.stats.roi >= 0 ? '+' : ''}{(mg.stats.roi * 100).toFixed(1)}%
+                          </span>
+                        </>
+                      )}
                     </span>
                   </summary>
                   <div className="p-3 space-y-4">
@@ -214,7 +250,7 @@ export default function AccumulatorHistoryPage() {
                                           className="px-2 py-0.5 rounded-full text-xs font-bold"
                                           style={{ background: rc.bg, color: rc.text, border: `1px solid ${rc.border}` }}
                                         >
-                                          {acc.result === 'won' ? `WON +${(acc.payout - 1).toFixed(2)}u` : 'LOST -1u'}
+                                          {acc.result === 'won' ? `WON ${formatKes(accPL(acc))}` : `LOST ${formatKes(accPL(acc))}`}
                                         </span>
                                       )}
                                     </div>
@@ -253,6 +289,14 @@ export default function AccumulatorHistoryPage() {
                                     <span style={{ color: evColor, fontWeight: 700 }}>
                                       EV: {acc.combinedEV > 0 ? '+' : ''}{(acc.combinedEV * 100).toFixed(1)}%
                                     </span>
+                                  </div>
+                                  <div className="flex justify-between text-xs mt-1.5" style={{ color: 'var(--text-secondary)' }}>
+                                    <span>Stake: {STAKE.toLocaleString('en-KE')}</span>
+                                    {acc.result !== 'pending' && (
+                                      <span style={{ color: accPL(acc) >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>
+                                        P&L: {formatKes(accPL(acc))}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               );

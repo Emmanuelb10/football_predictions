@@ -15,6 +15,7 @@ import * as TeamModel from '../models/Team';
 import * as MatchModel from '../models/Match';
 import * as OddsModel from '../models/OddsHistory';
 import { qualifiesByOdds, type Tip } from '../utils/qualification';
+import { findSameFixtureCandidate } from '../utils/matchIdentity';
 
 const LEAGUE_MAP: Record<string, { apiId: number; country: string }> = {
   'premier league': { apiId: 39, country: 'England' },
@@ -155,18 +156,24 @@ export async function ingestFixtures(targetDate?: string) {
       const kickoff = new Date(`${today}T${kickoffTime}:00Z`);
       const matchApiId = hashString(`${today}-${homeNorm}-${awayNorm}`);
 
-      // Skip recycled matches: same teams already exist within ±7 days OR already finished
+      // Skip recycled matches: same ordered teams already exist within ±7 days.
+      // Compare names fuzzily because prediction pages vary team naming across dates
+      // (for example "LOS MILLONARIOS" vs "Millonarios").
       const dupCheck = await query(
-        `SELECT id, status FROM matches
-         WHERE home_team_id = $1 AND away_team_id = $2
-           AND kickoff BETWEEN $3::timestamp - INTERVAL '7 days' AND $3::timestamp + INTERVAL '7 days'`,
-        [homeTeam.id, awayTeam.id, kickoff]
+        `SELECT m.id, m.status, m.kickoff, ht.name as home_team, at2.name as away_team
+         FROM matches m
+         JOIN teams ht ON m.home_team_id = ht.id
+         JOIN teams at2 ON m.away_team_id = at2.id
+         WHERE m.kickoff BETWEEN $1::timestamp - INTERVAL '7 days' AND $1::timestamp + INTERVAL '7 days'`,
+        [kickoff]
       );
-      if (dupCheck.rows.length > 0) {
-        const isRecycled = dupCheck.rows.some((r: any) => r.status === 'finished');
-        if (isRecycled) {
-          logger.info(`Skipping recycled match: ${f.homeTeam} vs ${f.awayTeam} (already finished)`);
-        }
+      const duplicate = findSameFixtureCandidate(dupCheck.rows, {
+        homeTeam: f.homeTeam,
+        awayTeam: f.awayTeam,
+      });
+      if (duplicate) {
+        const reason = duplicate.status === 'finished' ? 'already finished' : `already ingested as match ${duplicate.id}`;
+        logger.info(`Skipping recycled match: ${f.homeTeam} vs ${f.awayTeam} (${reason})`);
         continue;
       }
 

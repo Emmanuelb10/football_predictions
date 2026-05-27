@@ -1,4 +1,5 @@
 import InfoTip from './InfoTip';
+import { formatKickoffTime } from '../utils/timeFormat';
 
 interface EvPickCardProps {
   data: any;
@@ -75,12 +76,7 @@ export default function EvPickCard({ data, loading }: EvPickCardProps) {
   const tipLabel = pick.tip === '1' ? 'Home Win' : pick.tip === '2' ? 'Away Win' : 'Draw';
   const confidence = (Number(pick.confidence) * 100).toFixed(1);
   const ev = (Number(pick.expected_value) * 100).toFixed(1);
-  const kickoff = new Date(pick.kickoff).toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: 'Africa/Nairobi',
-  });
+  const kickoff = formatKickoffTime(pick.kickoff);
 
   return (
     <div className="card relative overflow-hidden" style={{ borderColor: '#6366f1', borderWidth: '2px' }}>

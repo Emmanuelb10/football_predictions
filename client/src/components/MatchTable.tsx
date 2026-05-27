@@ -1,4 +1,5 @@
 import InfoTip from './InfoTip';
+import { formatKickoffTime } from '../utils/timeFormat';
 
 interface MatchTableProps {
   matches: any[];
@@ -25,9 +26,6 @@ export default function MatchTable({ matches, loading, date, isFetching, settled
       </div>
     );
   }
-
-  const formatTime = (kickoff: string) =>
-    new Date(kickoff).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Africa/Nairobi' });
 
   const getResult = (m: any) => {
     if (m.status === 'finished') return `${m.home_score} - ${m.away_score}`;
@@ -104,7 +102,7 @@ export default function MatchTable({ matches, loading, date, isFetching, settled
           borderLeft: accentColor ? `3px solid ${accentColor}` : 'none',
         }}
       >
-        <td className="py-2 px-2 text-xs" style={{ color: 'var(--text-secondary)' }}>{formatTime(m.kickoff)}</td>
+        <td className="py-2 px-2 text-xs" style={{ color: 'var(--text-secondary)' }}>{formatKickoffTime(m.kickoff)}</td>
         <td className="py-2 px-2 text-sm font-medium">{m.home_team}</td>
         <td className="py-2 px-2 text-sm font-medium">{m.away_team}</td>
         <td className="py-2 px-2 text-center">

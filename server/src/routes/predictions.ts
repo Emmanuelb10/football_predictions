@@ -261,7 +261,7 @@ router.get('/potd-history', async (req: Request, res: Response) => {
     const days = parseInt(req.query.days as string) || 30;
     const result = await query(
       `SELECT DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') as date,
-              TO_CHAR(m.kickoff AT TIME ZONE 'Africa/Nairobi', 'HH24:MI') as kickoff_time,
+              TO_CHAR(m.kickoff AT TIME ZONE 'Africa/Nairobi', 'HH12:MI AM') as kickoff_time,
               ht.name as home_team, at2.name as away_team,
               t.name as tournament,
               p.tip, p.confidence, p.expected_value,
@@ -338,7 +338,7 @@ router.get('/ev-pick-history', async (req: Request, res: Response) => {
   try {
     const result = await query(
       `SELECT DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') as date,
-              TO_CHAR(m.kickoff AT TIME ZONE 'Africa/Nairobi', 'HH24:MI') as kickoff_time,
+              TO_CHAR(m.kickoff AT TIME ZONE 'Africa/Nairobi', 'HH12:MI AM') as kickoff_time,
               ht.name as home_team, at2.name as away_team,
               t.name as tournament,
               p.tip, p.confidence, p.expected_value,

@@ -114,7 +114,7 @@ async function getLeagueHitRatio(matchId: number): Promise<number> {
 export async function selectPickOfDay(date: string) {
   const res = await query(
     `SELECT p.*, ht.name as home_team, at2.name as away_team, t.name as league,
-            TO_CHAR(m.kickoff AT TIME ZONE 'Africa/Nairobi', 'HH24:MI') as kickoff_time,
+            TO_CHAR(m.kickoff AT TIME ZONE 'Africa/Nairobi', 'HH12:MI AM') as kickoff_time,
             oh.home_odds, oh.draw_odds, oh.away_odds
      FROM predictions p
      JOIN matches m ON p.match_id = m.id
@@ -180,7 +180,7 @@ export async function selectPickOfDay(date: string) {
 export async function selectEvPick(date: string) {
   const res = await query(
     `SELECT p.*, ht.name as home_team, at2.name as away_team, t.name as league,
-            TO_CHAR(m.kickoff AT TIME ZONE 'Africa/Nairobi', 'HH24:MI') as kickoff_time,
+            TO_CHAR(m.kickoff AT TIME ZONE 'Africa/Nairobi', 'HH12:MI AM') as kickoff_time,
             oh.home_odds, oh.draw_odds, oh.away_odds
      FROM predictions p
      JOIN matches m ON p.match_id = m.id

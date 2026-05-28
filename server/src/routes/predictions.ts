@@ -258,7 +258,6 @@ router.get('/accumulator-history', async (req: Request, res: Response) => {
 // POTD history: every day's pick with result
 router.get('/potd-history', async (req: Request, res: Response) => {
   try {
-    const days = parseInt(req.query.days as string) || 30;
     const result = await query(
       `SELECT DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') as date,
               TO_CHAR(m.kickoff AT TIME ZONE 'Africa/Nairobi', 'HH12:MI AM') as kickoff_time,
@@ -274,10 +273,9 @@ router.get('/potd-history', async (req: Request, res: Response) => {
        JOIN teams at2 ON m.away_team_id = at2.id
        JOIN tournaments t ON m.tournament_id = t.id
        LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC LIMIT 1) oh ON true
-       WHERE p.is_pick_of_day = true AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') >= $2
-       ORDER BY m.kickoff DESC
-       LIMIT $1`,
-      [days, LAUNCH_DATE]
+       WHERE p.is_pick_of_day = true AND DATE(m.kickoff AT TIME ZONE 'Africa/Nairobi') >= $1
+       ORDER BY m.kickoff DESC`,
+      [LAUNCH_DATE]
     );
 
     // Build a map of POTD picks by date
@@ -310,8 +308,7 @@ router.get('/potd-history', async (req: Request, res: Response) => {
 
     // Only include days that have a POTD pick (no filler "none" rows)
     const history = Array.from(picksByDate.values())
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .slice(0, days);
+      .sort((a, b) => b.date.localeCompare(a.date));
 
     const withPicks = history.filter((h: any) => h.outcome !== 'none');
     const settled = withPicks.filter((h: any) => h.outcome === 'won' || h.outcome === 'lost');

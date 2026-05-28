@@ -66,7 +66,7 @@ export function useSettled() {
 export function usePotdHistory() {
   return useQuery({
     queryKey: ['potd-history'],
-    queryFn: () => fetchPotdHistory(30),
+    queryFn: () => fetchPotdHistory(),
     refetchInterval: 300000,
   });
 }

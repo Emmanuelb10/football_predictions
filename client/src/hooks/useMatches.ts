@@ -1,5 +1,5 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
-import { fetchMatches, fetchPickOfDay, fetchPerformance, fetchDailyPL, fetchAccumulators, fetchSettled, fetchPotdHistory, fetchEvPick, fetchEvPickHistory, fetchAccumulatorHistory } from '../api/client';
+import { fetchMatches, fetchPickOfDay, fetchPerformance, fetchDailyPL, fetchSettled, fetchPotdHistory, fetchEvPick, fetchEvPickHistory } from '../api/client';
 import { todayString } from '../lib/routing';
 
 export function useMatches(date: string) {
@@ -44,17 +44,6 @@ export function useDailyPL(date: string) {
   });
 }
 
-export function useAccumulators(date: string) {
-  return useQuery({
-    queryKey: ['accumulators', date],
-    queryFn: () => fetchAccumulators(date),
-    enabled: !!date,
-    refetchInterval: 120000,
-    staleTime: 600000,
-    placeholderData: keepPreviousData,
-  });
-}
-
 export function useSettled() {
   return useQuery({
     queryKey: ['settled'],
@@ -90,10 +79,3 @@ export function useEvPickHistory() {
   });
 }
 
-export function useAccumulatorHistory() {
-  return useQuery({
-    queryKey: ['accumulator-history'],
-    queryFn: () => fetchAccumulatorHistory(30),
-    refetchInterval: 300000,
-  });
-}

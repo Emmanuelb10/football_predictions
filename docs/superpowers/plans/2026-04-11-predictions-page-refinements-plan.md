@@ -41,7 +41,6 @@ Run each command from the repo root:
 ```bash
 curl -s 'http://localhost:3001/api/predictions/pick-of-day?date=2026-04-11' > .baselines/potd-2026-04-11.json
 curl -s 'http://localhost:3001/api/matches?date=2026-04-11' > .baselines/matches-2026-04-11.json
-curl -s 'http://localhost:3001/api/predictions/accumulators?date=2026-04-11' > .baselines/acca-2026-04-11.json
 curl -s 'http://localhost:3001/api/predictions/potd-history?days=90' > .baselines/potd-history.json
 ```
 
@@ -500,61 +499,6 @@ cd server && npx tsc
 
 Expected: no errors.
 
-### Task 1.7: Wire qualifier into accumulator builder
-
-**Files:**
-- Modify: `server/src/routes/predictions.ts:27-71`
-
-- [ ] **Step 1: Add import**
-
-At the top of `server/src/routes/predictions.ts`, add:
-
-```ts
-import { qualifiesByOdds, type Tip } from '../utils/qualification';
-```
-
-- [ ] **Step 2: Add JS post-filter after the query**
-
-Find the block around line 46 that ends with `const picks = result.rows.map((r: any) => {`. Insert a post-filter immediately before the map:
-
-```ts
-    const conformingRows = result.rows.filter((r: any) => qualifiesByOdds(
-      r.tip as Tip,
-      r.home_odds != null ? Number(r.home_odds) : null,
-      r.draw_odds != null ? Number(r.draw_odds) : null,
-      r.away_odds != null ? Number(r.away_odds) : null,
-      Number(r.confidence),
-    ));
-
-    const picks = conformingRows.map((r: any) => {
-```
-
-(The original `const picks = result.rows.map(...)` becomes `const picks = conformingRows.map(...)`.)
-
-- [ ] **Step 3: Add secondary sort to the SQL LATERAL join for determinism**
-
-In the SELECT at lines 32-45, change:
-
-```sql
-       LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC LIMIT 1) oh ON true
-```
-
-to:
-
-```sql
-       LEFT JOIN LATERAL (SELECT * FROM odds_history WHERE match_id = m.id ORDER BY scraped_at DESC, id DESC LIMIT 1) oh ON true
-```
-
-(This ensures deterministic "latest odds" when two odds rows share a `scraped_at` timestamp.)
-
-- [ ] **Step 4: Compile**
-
-```bash
-cd server && npx tsc
-```
-
-Expected: no errors.
-
 ### Task 1.8: Add server-side date validation helper
 
 **Files:**
@@ -597,7 +541,7 @@ Expected: no errors.
 
 **Files:**
 - Modify: `server/src/routes/matches.ts:21-30`
-- Modify: `server/src/routes/predictions.ts` (three endpoints: pick-of-day, accumulators, potd-history)
+- Modify: server/src/routes/predictions.ts (pick-of-day endpoint)
 
 - [ ] **Step 1: Update `routes/matches.ts` root GET**
 
@@ -639,7 +583,7 @@ Add the import at the top:
 import { isValidDateString } from '../utils/dateValidation';
 ```
 
-For each of the three handlers (`/pick-of-day`, `/accumulators`, `/potd-history`), find the `const date = (req.query.date as string) || ...` line and add a validation check immediately after. Example for `pick-of-day`:
+For the `/pick-of-day` handler, find the `const date = (req.query.date as string) || ...` line and add a validation check immediately after:
 
 Replace:
 
@@ -658,7 +602,6 @@ with:
     }
 ```
 
-Apply the same pattern to `/accumulators`. The `/potd-history` endpoint takes `days` not `date`, so skip it.
 
 - [ ] **Step 3: Compile**
 
@@ -733,14 +676,6 @@ curl -s 'http://localhost:3001/api/matches?date=2026-04-11' | grep -o '"id":[0-9
 
 Expected: 9 (same as baseline — the code-path fix doesn't change the matches list for today, only the POTD selection and the `is_value_bet` flag).
 
-- [ ] **Step 5: Verify accumulator endpoint still returns**
-
-```bash
-curl -s 'http://localhost:3001/api/predictions/accumulators?date=2026-04-11' | head -c 200
-```
-
-Expected: JSON starting with `{"date":"2026-04-11","accumulators":[`. Non-empty.
-
 - [ ] **Step 6: Verify server-side date validation**
 
 ```bash
@@ -774,8 +709,7 @@ git commit -m "$(cat <<'EOF'
 Enforce qualification rule in all server filter sites
 
 Introduce shared qualifiesByOdds helper and rewire every filter
-site (ingestion, matches route, storePrediction, selectPickOfDay,
-accumulator endpoint) to use it. Delete isValueBet (which used a
+site (ingestion, matches route, storePrediction, selectPickOfDay) to use it.
 strict > 1.50 lower bound inconsistent with the other filters).
 Remove the POTD fallback to confidence >= 0.55. Add server-side
 date validation at every route that accepts a date parameter.
@@ -1827,8 +1761,6 @@ export default function Glossary() {
     { term: 'Brier Score', def: 'Measures prediction accuracy on a 0-1 scale. 0 = perfect predictions, lower is better. Penalizes overconfident wrong predictions.' },
     { term: 'Log Loss', def: 'Cross-entropy metric that penalizes confident wrong predictions more heavily than uncertain ones. Lower is better.' },
     { term: 'Confidence Tiers', def: 'Matches grouped by win probability: HIGH (90%+, gold), STRONG (80-89%, green), VALUE (70-79%, blue).' },
-    { term: 'Accumulator (Acca)', def: 'A multi-bet combining 2-4 picks. ALL legs must win for the acca to pay out. Combined odds = individual odds multiplied together.' },
-    { term: '2-Fold / 3-Fold / 4-Fold', def: 'The number of legs in an accumulator. A 3-fold combines 3 picks. Higher folds = bigger payout but lower chance of winning.' },
     { term: 'Profit/Loss Banner', def: '"Today: 3W - 1L - 2P" means 3 wins, 1 loss, 2 matches still pending. "+1.40 units" is the net profit for the day.' },
     { term: 'Result Column', def: 'Shows the final score (e.g. 2-1) with a green checkmark (\u2713) if the tip was correct, or red cross (\u2717) if wrong.' },
   ];
@@ -2401,17 +2333,6 @@ export function useDailyPL(date: string) {
   });
 }
 
-export function useAccumulators(date: string) {
-  return useQuery({
-    queryKey: ['accumulators', date],
-    queryFn: () => fetchAccumulators(date),
-    enabled: !!date,
-    refetchInterval: 120000,
-    staleTime: 600000,
-    placeholderData: keepPreviousData,
-  });
-}
-
 export function useSettled() {
   return useQuery({
     queryKey: ['settled'],
@@ -2573,7 +2494,6 @@ Load `http://localhost:3001/` in a fresh browser tab. Verify:
 curl -s http://localhost:3001/api/health | grep -o '"status":"ok"'
 curl -s 'http://localhost:3001/api/matches?date=2026-04-11' | grep -o '"matches":\[' | head -1
 curl -s 'http://localhost:3001/api/predictions/pick-of-day?date=2026-04-11' | head -c 200
-curl -s 'http://localhost:3001/api/predictions/accumulators?date=2026-04-11' | grep -o '"accumulators":\[' | head -1
 curl -s 'http://localhost:3001/api/predictions/potd-history?days=30' | grep -o '"history":\[' | head -1
 ```
 

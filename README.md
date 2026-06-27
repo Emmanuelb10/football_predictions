@@ -1,6 +1,6 @@
 # Football Predictions — AI-Powered Betting Helper
 
-A full-stack sports analytics platform that identifies value bets with deep analytics, live result tracking, and accumulator suggestions. Scrapes real fixtures and odds from prosoccer.gr, syncs results from livescore.com and sofascore, and uses Claude AI for predictions.
+A full-stack sports analytics platform that identifies value bets with deep analytics and live result tracking. Scrapes real fixtures and odds from prosoccer.gr, syncs results from livescore.com and sofascore, and uses Claude AI for predictions.
 
 ## Architecture
 
@@ -39,7 +39,6 @@ A full-stack sports analytics platform that identifies value bets with deep anal
 
 - **Value bet detection**: Only shows matches with 70%+ win probability AND odds 1.50-1.99
 - **Pick of the Day**: AI-selected best bet with reasoning explanation
-- **Accumulator builder**: Best 2-fold, 3-fold, 4-fold combos with results tracking
 - **Confidence tiers**: Matches grouped by HIGH (90%+), STRONG (80-89%), VALUE (70-79%)
 - **Live result sync**: Scores from livescore.com + sofascore every 10 minutes
 - **Daily P&L banner**: Today's wins/losses, profit in units, current streak
@@ -107,7 +106,6 @@ The server serves both the API and frontend on port 3001.
 | GET | `/api/health` | Server status, AI key status |
 | GET | `/api/matches?date=YYYY-MM-DD` | Matches with predictions + odds (auto-ingests if empty) |
 | GET | `/api/predictions/pick-of-day?date=YYYY-MM-DD` | Pick of the Day with AI reasoning |
-| GET | `/api/predictions/accumulators?date=YYYY-MM-DD` | Best 2/3/4-fold combos with results |
 | GET | `/api/performance?days=30` | Hit ratio, ROI, Brier score, log loss, league breakdown |
 | GET | `/api/performance/daily?date=YYYY-MM-DD` | Daily P&L, wins/losses, streak |
 | GET | `/api/matches/settled?since=ISO` | Recently settled matches (for live polling) |

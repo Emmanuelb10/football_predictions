@@ -45,11 +45,6 @@ export async function fetchDailyPL(date: string) {
   return data;
 }
 
-export async function fetchAccumulators(date: string) {
-  const { data } = await api.get(`/predictions/accumulators?date=${date}`);
-  return data;
-}
-
 export async function fetchSettled(since: string) {
   const { data } = await api.get(`/matches/settled?since=${since}`);
   return data;
@@ -70,7 +65,3 @@ export async function fetchEvPickHistory() {
   return data;
 }
 
-export async function fetchAccumulatorHistory(days: number = 30) {
-  const { data } = await api.get(`/predictions/accumulator-history?days=${days}`);
-  return data;
-}

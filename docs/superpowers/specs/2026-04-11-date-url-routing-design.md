@@ -9,7 +9,7 @@ This spec bundles five related refinements to the predictions page:
 2. **Collapsible monthly POTD history** — group history by month, with collapsible sections.
 3. **Collapsible glossary** — let the user hide the glossary until they need it.
 4. **POTD card: full H/D/A odds** — show all three 1X2 odds on the Pick of the Day card.
-5. **Rules enforcement consistency** — stop non-conforming matches from sneaking into POTD selection, accumulators, and the `is_value_bet` flag; clean up historical DB rows that violate the current odds rules.
+5. **Rules enforcement consistency** — stop non-conforming matches from sneaking into POTD selection, and the `is_value_bet` flag; clean up historical DB rows that violate the current odds rules.
 
 Although bundled in one spec (user asked for them together), each feature is independently reviewable and the implementation plan will treat them as sequential, self-contained sub-steps. See **Implementation Order** at the bottom of this spec.
 
@@ -91,7 +91,7 @@ export function qualifiesByOdds(
 }
 ```
 
-This helper is imported by **all** filter sites: `fixtureIngestion.ts`, `routes/matches.ts`, `services/predictionEngine.ts` (`selectPickOfDay` and `storePrediction`), `routes/predictions.ts` (accumulator and POTD history), and the cleanup script.
+This helper is imported by **all** filter sites: `fixtureIngestion.ts`, `routes/matches.ts`, `services/predictionEngine.ts` (`selectPickOfDay` and `storePrediction`), `routes/predictions.ts` (POTD history), and the cleanup script.
 
 ### F3. `isValueBet` is removed, not refactored
 
@@ -270,7 +270,7 @@ No upper bound. Future dates are allowed. The spec does NOT claim invalid dates 
 
 ### Server-side defense in depth
 
-Even though the client validates, the server must also validate to prevent defense-in-depth gaps. Add a small helper `server/src/utils/dateValidation.ts` with the same three-rule check, and call it at the top of `routes/matches.ts`, `routes/predictions.ts` (POTD, POTD history, accumulators), and `routes/performance.ts`:
+Even though the client validates, the server must also validate to prevent defense-in-depth gaps. Add a small helper `server/src/utils/dateValidation.ts` with the same three-rule check, and call it at the top of `routes/matches.ts`, `routes/predictions.ts` (POTD and POTD history), and `routes/performance.ts`:
 
 ```ts
 import dayjs from 'dayjs';
@@ -563,7 +563,6 @@ The "70%+ prob AND tipped odds 1.50-1.99 (inclusive) AND opposing side >= 5.00" 
 But it is **not** enforced in:
 
 - `server/src/services/predictionEngine.ts:107` — `selectPickOfDay()` picks from `is_value_bet = true` rows and falls back to `confidence >= 0.55` without checking the full rule.
-- `server/src/routes/predictions.ts:32-45` — accumulator builder selects from `is_value_bet = true` without the opposing-side check.
 - `server/src/utils/expectedValue.ts:23` — `isValueBet()` uses `odds > 1.50` (strict), while `fixtureIngestion.ts:81` and `routes/matches.ts:91` use `< 1.50 || > 1.99` which accepts `1.50` exactly.
 
 **Live evidence:** Today's POTD is `Cercle Brugge vs Raal La Louviere` with home=1.90 / draw=3.45 / **away=3.60**. Tip=1, so opposing = 3.60, far below 5.00. Filtered correctly from `/api/matches` but still returned as POTD because `selectPickOfDay` has no opposing-side enforcement.
@@ -589,7 +588,6 @@ But it is **not** enforced in:
    - Query candidates as before (`is_value_bet = true` with all three odds in the SELECT).
    - After fetching, apply a JS post-filter: `candidates = candidates.filter(c => qualifiesByOdds(c.tip, Number(c.home_odds), Number(c.draw_odds), Number(c.away_odds), Number(c.confidence)))`.
    - **Remove the `confidence >= 0.55` fallback** (lines 124-143). If no candidates remain, `clearPickOfDay(date)` and return `null`.
-5. `routes/predictions.ts:32-45` (accumulator builder) — after the SELECT, apply the same JS post-filter before building combinations.
 6. `routes/predictions.ts:128-150` (POTD history) — no additional filter needed here; the POTD history reads already-persisted `is_pick_of_day` flags, which are set by `selectPickOfDay` (now correct). But the SQL should guard against orphan rows: `WHERE p.is_pick_of_day = true AND m.id IS NOT NULL`.
 
 **B. POTD recomputation semantics**
@@ -794,7 +792,6 @@ Capture a baseline for comparison:
 ```bash
 curl -s 'http://localhost:3001/api/predictions/pick-of-day?date=2026-04-11' > baseline_potd_2026-04-11.json
 curl -s 'http://localhost:3001/api/matches?date=2026-04-11' | jq '.matches | length' > baseline_matches_count.txt
-curl -s 'http://localhost:3001/api/predictions/accumulators?date=2026-04-11' > baseline_acca.json
 curl -s 'http://localhost:3001/api/predictions/potd-history?days=90' > baseline_history.json
 ```
 
@@ -804,7 +801,6 @@ curl -s 'http://localhost:3001/api/predictions/potd-history?days=90' > baseline_
 2. **`isValueBet` is removed.** Grep `isValueBet` in `server/src/` — only test-related references allowed (none expected).
 3. **Today's POTD changes immediately.** After deploying code-path fix (not cleanup yet): `curl /api/predictions/pick-of-day?date=2026-04-11`. Cercle Brugge should no longer be returned (it no longer qualifies). Either a different POTD from the 9 conforming matches, or `null` if none qualify at POTD ranking time.
 4. **Shanghai Shenhua tip badge is green.** Load `/2026-04-11` in the browser. Shanghai Shenhua (home=1.50, tip=1) now renders with a green badge (via `is_value_bet = true` on next scrape or after the cleanup's recomputation of existing rows).
-5. **Accumulators respect rules.** `curl /api/predictions/accumulators?date=2026-04-11` — every leg of every combo has opposing odds >= 5.00.
 
 ### Feature 5 — Cleanup dry-run
 
@@ -830,7 +826,6 @@ curl -s 'http://localhost:3001/api/predictions/potd-history?days=90' > baseline_
     - `confidence >= 0.70`
     - tipped odds in `[1.50, 1.99]`
     - opposing odds >= 5.00
-17. **Accumulator conformance.** `curl /api/predictions/accumulators?date=2026-04-11` — every leg satisfies the rules.
 18. **POTD history has no gaps worth investigating.** Compare `curl /api/predictions/potd-history?days=90` to `baseline_history.json`. Expected changes: some days that had a POTD may now have none (those days had no qualifying matches after cleanup). Document which days changed for the user.
 19. **Fresh scrape reintegration.** `POST /api/trigger/ingest?date=2026-04-11`. Wait 30s. Re-check `/api/matches` — no new non-conforming matches appear.
 

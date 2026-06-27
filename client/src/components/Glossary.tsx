@@ -14,8 +14,6 @@ export default function Glossary() {
     { term: 'Brier Score', def: 'Measures prediction accuracy on a 0-1 scale. 0 = perfect predictions, lower is better. Penalizes overconfident wrong predictions.' },
     { term: 'Log Loss', def: 'Cross-entropy metric that penalizes confident wrong predictions more heavily than uncertain ones. Lower is better.' },
     { term: 'Confidence Tiers', def: 'Matches grouped by win probability: HIGH (90%+, gold), STRONG (80-89%, green), VALUE (70-79%, blue).' },
-    { term: 'Accumulator (Acca)', def: 'A multi-bet combining 2-4 picks. ALL legs must win for the acca to pay out. Combined odds = individual odds multiplied together.' },
-    { term: '2-Fold / 3-Fold / 4-Fold', def: 'The number of legs in an accumulator. A 3-fold combines 3 picks. Higher folds = bigger payout but lower chance of winning.' },
     { term: 'Profit/Loss Banner', def: '"Today: 3W - 1L - 2P" means 3 wins, 1 loss, 2 matches still pending. "+1.40 units" is the net profit for the day.' },
     { term: 'Result Column', def: 'Shows the final score (e.g. 2-1) with a green checkmark (\u2713) if the tip was correct, or red cross (\u2717) if wrong.' },
   ];

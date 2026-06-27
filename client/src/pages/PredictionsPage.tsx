@@ -4,13 +4,12 @@ import DatePicker from '../components/DatePicker';
 import PickOfDayCard from '../components/PickOfDayCard';
 import MatchTable from '../components/MatchTable';
 
-import AccumulatorCard from '../components/AccumulatorCard';
 import PotdHistory from '../components/PotdHistory';
 import EvPickCard from '../components/EvPickCard';
 import EvPickHistory from '../components/EvPickHistory';
 import Glossary from '../components/Glossary';
 import { useToast } from '../components/ToastContainer';
-import { useMatches, usePickOfDay, useAccumulators, useSettled, usePotdHistory, useEvPick, useEvPickHistory } from '../hooks/useMatches';
+import { useMatches, usePickOfDay, useSettled, usePotdHistory, useEvPick, useEvPickHistory } from '../hooks/useMatches';
 import { isValidDateParam } from '../lib/routing';
 import NotFound from './NotFound';
 
@@ -28,7 +27,6 @@ export default function PredictionsPage() {
     matchData?.matches?.length !== undefined ? date : ''
   );
 
-  const { data: accData } = useAccumulators(matchData?.matches?.length ? date : '');
   const { data: settledData } = useSettled();
   const { data: potdHistoryData } = usePotdHistory();
   const { data: evPickData, isLoading: evPickLoading } = useEvPick(
@@ -99,7 +97,6 @@ export default function PredictionsPage() {
           settledIds={settledIds}
         />
 
-        <AccumulatorCard data={accData} />
         <PotdHistory data={potdHistoryData} />
         <EvPickHistory data={evPickHistoryData} />
         <Glossary />

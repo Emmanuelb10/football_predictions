@@ -32,7 +32,7 @@ A full-stack sports analytics platform that identifies value bets with deep anal
 | Database | PostgreSQL 17 (raw pg, not ORM) |
 | AI | Claude API (HTML parsing + predictions) |
 | Fixtures & Odds | prosoccer.gr (scraped via Claude) |
-| Results | livescore.com CDN API + sofascore API |
+| Results | livescore.com CDN API + sofascore API + ESPN API + Flashscore Kenya |
 | Process Mgr | PM2 |
 
 ## Features

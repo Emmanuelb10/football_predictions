@@ -1,5 +1,37 @@
 import axios from 'axios';
+import https from 'https';
 import logger from '../config/logger';
+
+const providerAgent = new https.Agent({ keepAlive: true, family: 4, maxSockets: 6 });
+const providerHeaders = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+  'Accept': 'application/json',
+};
+
+const delay = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+/** Public score feeds intermittently reset or throttle connections. */
+async function getProviderJson<T>(url: string): Promise<T> {
+  let lastError: any;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const { data } = await axios.get<T>(url, {
+        proxy: false,
+        timeout: 12000,
+        httpsAgent: providerAgent,
+        headers: providerHeaders,
+      });
+      return data;
+    } catch (error: any) {
+      lastError = error;
+      const status = error.response?.status;
+      // Retrying malformed/forbidden requests adds load but cannot fix them.
+      if (status && status < 500 && status !== 429) break;
+      if (attempt < 1) await delay(750);
+    }
+  }
+  throw lastError;
+}
 
 export interface LivescoreMatch {
   homeTeam: string;
@@ -9,23 +41,22 @@ export interface LivescoreMatch {
   league: string;
   status: string;
   kickoff: string;
+  /** Metadata added by the result synchroniser; not supplied by providers. */
+  resultDate?: string;
+  source?: 'bbc' | 'livescore' | 'sofascore' | 'scores365' | 'espn' | 'flashscore' | 'prosoccer' | 'zulubet';
 }
 
 /**
  * Fetch all match results from livescore.com for a specific date.
  */
-export async function fetchLivescores(date: string): Promise<LivescoreMatch[]> {
+const livescoreCache = new Map<string, { expiresAt: number; request: Promise<LivescoreMatch[]> }>();
+
+async function fetchLivescoresUncached(date: string): Promise<LivescoreMatch[]> {
   try {
     const dateCompact = date.replace(/-/g, '');
     const url = `https://prod-cdn-public-api.livescore.com/v1/api/app/date/soccer/${dateCompact}/1?MD=1`;
 
-    const { data } = await axios.get(url, {
-      timeout: 15000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-      },
-    });
+    const data = await getProviderJson<any>(url);
 
     const matches: LivescoreMatch[] = [];
     for (const stage of (data.Stages || [])) {
@@ -55,6 +86,22 @@ export async function fetchLivescores(date: string): Promise<LivescoreMatch[]> {
   } catch (error: any) {
     logger.error(`Livescore.com fetch failed: ${error.message}`);
     return [];
+  }
+}
+
+/** Cache a date briefly so result and cancellation checks share one request. */
+export async function fetchLivescores(date: string): Promise<LivescoreMatch[]> {
+  const now = Date.now();
+  const cached = livescoreCache.get(date);
+  if (cached && cached.expiresAt > now) return cached.request;
+
+  const request = fetchLivescoresUncached(date);
+  livescoreCache.set(date, { request, expiresAt: now + 60000 });
+  try {
+    return await request;
+  } catch (error) {
+    livescoreCache.delete(date);
+    throw error;
   }
 }
 
@@ -117,13 +164,7 @@ export async function fetchCancelledMatches(date: string): Promise<LivescoreMatc
 export async function fetchSofascoreResults(date: string): Promise<LivescoreMatch[]> {
   try {
     const url = `https://api.sofascore.com/api/v1/sport/football/scheduled-events/${date}`;
-    const { data } = await axios.get(url, {
-      timeout: 15000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-      },
-    });
+    const data = await getProviderJson<any>(url);
 
     const matches: LivescoreMatch[] = [];
     for (const evt of (data.events || [])) {
@@ -155,13 +196,7 @@ export async function fetchEspnAllMatches(date: string): Promise<LivescoreMatch[
   try {
     const dateCompact = date.replace(/-/g, '');
     const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates=${dateCompact}&limit=500`;
-    const { data } = await axios.get(url, {
-      timeout: 15000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-      },
-    });
+    const data = await getProviderJson<any>(url);
 
     const matches: LivescoreMatch[] = [];
     for (const evt of (data.events || [])) {
@@ -198,13 +233,7 @@ export async function fetchEspnResults(date: string): Promise<LivescoreMatch[]> 
   try {
     const dateCompact = date.replace(/-/g, '');
     const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates=${dateCompact}&limit=500`;
-    const { data } = await axios.get(url, {
-      timeout: 15000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-      },
-    });
+    const data = await getProviderJson<any>(url);
 
     const matches: LivescoreMatch[] = [];
     for (const evt of (data.events || [])) {
@@ -311,4 +340,41 @@ export function teamsMatch(dbName: string, liveName: string): boolean {
   }
 
   return false;
+}
+
+/**
+ * Conservative team comparison for writing a final score.  `teamsMatch` is
+ * deliberately permissive because it is also used to discover fixtures from
+ * differently formatted feeds.  That tolerance is unsafe for results: a
+ * false positive permanently records another match's score.
+ */
+export function teamsStrongMatch(dbName: string, liveName: string): boolean {
+  const normalize = (name: string) => name.toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\b(FC|CF|SC|SK|FK|AC|AS|SS|CD|UD|RC|US|SD|CA|SE|CE|AD|CLUB|THE)\b/g, ' ')
+    .replace(/[^A-Z0-9 ]/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(word => word.length >= 3);
+
+  const left = normalize(dbName);
+  const right = normalize(liveName);
+  if (!left.length || !right.length) return false;
+  if (left.join(' ') === right.join(' ')) return true;
+
+  const leftText = left.join(' ');
+  const rightText = right.join(' ');
+  const shared = left.filter(word => right.includes(word));
+  // A single word is enough only when it is the complete meaningful name on
+  // one side.  This supports "Pogon" vs "Pogon Szczecin" without allowing
+  // "United" or another generic word to identify a club.
+  const generic = new Set(['UNITED', 'CITY', 'ATHLETIC', 'REAL', 'RACING', 'SPORTING', 'OLYMPIQUE', 'DYNAMO', 'DINAMO', 'INTER', 'MIAMI']);
+  if (shared.length >= 2) return true;
+  if (shared.length === 1 && !generic.has(shared[0]) && (left.length === 1 || right.length === 1)) return true;
+
+  // Accept an unambiguous long name prefix only when both names have a single
+  // meaningful word (e.g. "Millonarios" / "Los Millonarios").
+  return left.length === 1 && right.length === 1 && leftText.length >= 6 &&
+    (leftText.startsWith(rightText) || rightText.startsWith(leftText));
 }

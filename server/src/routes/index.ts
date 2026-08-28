@@ -14,7 +14,7 @@ router.get('/health', async (_req: Request, res: Response) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    sources: ['livescore.com', 'prosoccer.gr', 'zulubet.com'],
+    sources: ['bbc.com/sport', 'livescore.com', 'sofascore.com', 'espn.com', 'flashscore.co.ke', 'prosoccer.gr', 'zulubet.com'],
   });
 });
 

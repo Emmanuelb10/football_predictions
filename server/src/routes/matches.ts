@@ -53,13 +53,11 @@ router.get('/', async (req: Request, res: Response) => {
     // Auto-sync results for past dates with unfinished matches
     const today = dayjs().tz('Africa/Nairobi').format('YYYY-MM-DD');
     if (date < today && matches.some((m: any) => m.status === 'scheduled')) {
-      try {
-        const { syncResultsForDate } = await import('../cron/resultSync');
-        await syncResultsForDate(date);
-        matches = await MatchModel.findByDate(date);
-      } catch (err: any) {
-        logger.error(`Auto result sync failed for ${date}: ${err.message}`);
-      }
+      // Provider refreshes can take tens of seconds. Keep the page responsive
+      // and let the next poll pick up results that finish in the background.
+      import('../cron/resultSync')
+        .then(({ syncResultsForDate }) => syncResultsForDate(date))
+        .catch((err: any) => logger.error(`Auto result sync failed for ${date}: ${err.message}`));
     }
 
     // Attach latest odds to each match

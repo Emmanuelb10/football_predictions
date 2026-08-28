@@ -82,6 +82,15 @@ function getProsoccerUrl(date: string): string {
   return `https://www.prosoccer.gr/en/football/predictions/${dayName}.html`;
 }
 
+/** ProSoccer only exposes current/yesterday result pages, not dated archives. */
+export function canVerifyProsoccerResult(date: string): boolean {
+  const today = new Date();
+  const todayDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  const requestedDate = new Date(`${date}T00:00:00Z`);
+  const daysApart = Math.round((requestedDate.getTime() - todayDate.getTime()) / 86400000);
+  return daysApart === 0 || daysApart === -1;
+}
+
 /**
  * Scrape fixtures from prosoccer.gr using cheerio to parse HTML directly.
  */
@@ -90,6 +99,8 @@ export async function scrapeFixtures(date: string): Promise<ScrapedFixture[]> {
     const url = getProsoccerUrl(date);
     logger.info(`Scraping ${url} for ${date}`);
     const { data: html } = await axios.get(url, {
+      // Do not inherit an unreachable localhost proxy from the shell.
+      proxy: false,
       timeout: 20000,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -288,6 +299,19 @@ export async function scrapeAllSources(date: string): Promise<ScrapedFixture[]> 
 }
 
 export async function scrapeResults(date: string): Promise<ScrapedFixture[]> {
-  const fixtures = await scrapeFixtures(date);
-  return fixtures.filter(f => f.status === 'finished' && f.homeScore != null);
+  const [prosoccerResult, zulubetResult] = await Promise.allSettled([
+    scrapeFixtures(date),
+    scrapeZulubet(date),
+  ]);
+  const prosoccer = prosoccerResult.status === 'fulfilled' ? prosoccerResult.value : [];
+  const zulubet = zulubetResult.status === 'fulfilled' ? zulubetResult.value : [];
+
+  const seen = new Set<string>();
+  return [...prosoccer, ...zulubet].filter(f => {
+    if (f.status !== 'finished' || f.homeScore == null || f.awayScore == null) return false;
+    const key = `${f.homeTeam.toUpperCase()}|${f.awayTeam.toUpperCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }

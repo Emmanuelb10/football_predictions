@@ -87,8 +87,8 @@ export default function PredictionsPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-4">
-        <PickOfDayCard data={pickData} loading={pickLoading} />
         <EvPickCard data={evPickData} loading={evPickLoading} />
+        <PickOfDayCard data={pickData} loading={pickLoading} />
         <MatchTable
           matches={matchData?.matches || []}
           loading={matchesLoading}
@@ -97,8 +97,8 @@ export default function PredictionsPage() {
           settledIds={settledIds}
         />
 
-        <PotdHistory data={potdHistoryData} />
         <EvPickHistory data={evPickHistoryData} />
+        <PotdHistory data={potdHistoryData} />
         <Glossary />
       </main>
     </div>

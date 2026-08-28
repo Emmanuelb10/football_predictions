@@ -8,6 +8,7 @@ dayjs.extend(timezone);
 import { query } from '../config/database';
 import { fetchLivescores, fetchEspnAllMatches, teamsMatch } from '../services/livescoreFetcher';
 import type { LivescoreMatch } from '../services/livescoreFetcher';
+import { fetch1xBetMatches, selectBookmakerFixtureForMatch } from '../services/bookmakerFallback';
 import * as fixtureScraper from '../services/fixtureScraper';
 import * as predictionEngine from '../services/predictionEngine';
 import * as TournamentModel from '../models/Tournament';
@@ -97,26 +98,38 @@ export async function ingestFixtures(targetDate?: string) {
     // Step 2: Verify matches exist on ESPN or livescore for this date (±1 day)
     const prevDate = dayjs(today).subtract(1, 'day').format('YYYY-MM-DD');
     const nextDate = dayjs(today).add(1, 'day').format('YYYY-MM-DD');
-    const [espnMain, espnPrev, espnNext, lsMain, lsPrev, lsNext] = await Promise.all([
+    const [espnMain, espnPrev, espnNext, lsMain, lsPrev, lsNext, bxMain, bxPrev, bxNext] = await Promise.all([
       fetchEspnAllMatches(today).catch(() => [] as LivescoreMatch[]),
       fetchEspnAllMatches(prevDate).catch(() => [] as LivescoreMatch[]),
       fetchEspnAllMatches(nextDate).catch(() => [] as LivescoreMatch[]),
       fetchLivescores(today),
       fetchLivescores(prevDate),
       fetchLivescores(nextDate),
+      fetch1xBetMatches(today),
+      fetch1xBetMatches(prevDate),
+      fetch1xBetMatches(nextDate),
     ]);
     const verifyPool = [...espnMain, ...espnPrev, ...espnNext, ...lsMain, ...lsPrev, ...lsNext];
+    const bookmakerVerifyPool = [...bxMain, ...bxPrev, ...bxNext];
 
     const verified = withPredictions.filter(f => {
       // Require BOTH home AND away team to match — prevents false positives from partial name matches
-      const found = verifyPool.some(v =>
+      const foundPrimary = verifyPool.some(v =>
         teamsMatch(f.homeTeam, v.homeTeam) && teamsMatch(f.awayTeam, v.awayTeam)
       );
-      if (!found) logger.info(`Unverified (not on ESPN/livescore): ${f.homeTeam} vs ${f.awayTeam}`);
-      return found;
+      if (foundPrimary) return true;
+
+      const bookmakerMatch = selectBookmakerFixtureForMatch(f.homeTeam, f.awayTeam, bookmakerVerifyPool);
+      if (bookmakerMatch) {
+        logger.info(`Verified by 1xBet fallback: ${f.homeTeam} vs ${f.awayTeam}`);
+        return true;
+      }
+
+      logger.info(`Unverified (not on ESPN/livescore/1xBet): ${f.homeTeam} vs ${f.awayTeam}`);
+      return false;
     });
 
-    logger.info(`${verified.length}/${withPredictions.length} verified on ESPN/livescore`);
+    logger.info(`${verified.length}/${withPredictions.length} verified on ESPN/livescore/1xBet`);
 
     if (verified.length === 0) {
       logger.info(`No verified fixtures for ${today}`);

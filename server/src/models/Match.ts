@@ -59,6 +59,19 @@ export async function findPendingResults() {
   return res.rows;
 }
 
+/** Recently settled scores may be corrected by an authoritative provider. */
+export async function findRecentlyFinishedResults(days = 3) {
+  const res = await query(
+    `SELECT * FROM matches
+     WHERE status = 'finished'
+       AND home_score IS NOT NULL
+       AND away_score IS NOT NULL
+       AND kickoff >= NOW() - ($1 * INTERVAL '1 day')`,
+    [days],
+  );
+  return res.rows;
+}
+
 export async function findStaleScheduled() {
   // Matches still 'scheduled' but kickoff was 48+ hours ago — likely postponed/cancelled
   const res = await query(

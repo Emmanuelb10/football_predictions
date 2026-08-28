@@ -25,6 +25,8 @@ export async function scrapeZulubet(date: string): Promise<ScrapedFixture[]> {
     logger.info(`Scraping ${url} for ${date}`);
 
     const { data: html } = await axios.get(url, {
+      // Do not inherit an unreachable localhost proxy from the shell.
+      proxy: false,
       timeout: 30000,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36',

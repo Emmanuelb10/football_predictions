@@ -8,7 +8,10 @@ export function useMatches(date: string) {
     queryFn: () => fetchMatches(date),
     enabled: !!date,
     refetchInterval: 90000,
-    staleTime: 600000,
+    // Results can be corrected after a match has settled. Always refresh when
+    // a user returns to a date instead of showing a long-lived cached score.
+    staleTime: 0,
+    refetchOnMount: 'always',
     placeholderData: keepPreviousData,
   });
 }
